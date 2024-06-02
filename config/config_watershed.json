@@ -1,0 +1,39 @@
+{
+
+  "log_folder": "C:\\dev\\USGS_MRP\\logs",
+
+  "sitesConfig": {
+   "itemId": "84544fef931d4d7db5edc46891fc481e",
+   "layerId": 0
+  },
+  "order_direction": "ASC",
+  "records_per_request": 3,
+  "number_of_threads": 3,
+  "outputWatershedLayerConfig": {
+  "itemId": "82a353ba9dd649419007207913a4223d"
+  },
+
+ "the_portal": {
+   "url": "https://esprd.maps.arcgis.com/",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   "user": "pinde",
+   "pass": "KevkDear2o22!!"
+ }
+}
