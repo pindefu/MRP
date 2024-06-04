@@ -4,14 +4,16 @@
 
   "sitesConfig": {
    "itemId": "84544fef931d4d7db5edc46891fc481e",
-   "layerId": 0
+   "layerId": 0,
+   "where": "Lab_ID in ('C-407078', 'C-427907', 'C-421191')"
   },
   "order_direction": "ASC",
-  "records_per_request": 3,
-  "number_of_threads": 3,
   "outputWatershedLayerConfig": {
   "itemId": "82a353ba9dd649419007207913a4223d"
   },
+  "records_per_request": 1,
+  "number_of_threads": 1,
+  "seconds_between_requests": 90,
 
  "the_portal": {
    "url": "https://esprd.maps.arcgis.com/",

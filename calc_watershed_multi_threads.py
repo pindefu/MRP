@@ -53,21 +53,27 @@ def get_logger(l_dir, t_filename, s_time):
 
     return logger, l_dir, l_file_name
 
-def calculate_watershed_for_featureset(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, fset, records_per_request, thread_id):
+def calculate_watershed_for_featureset(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, thread_id):
     logger.info("Thread ID: {}".format(thread_id))
     context = {"overwrite": False}
     num_of_results = 0
-    # calculate the number of loops required to process all the features in the feature set
-    num_of_loops = len(fset) // records_per_request + 1
+    # calculate the number of loops required to process in this thread
+    num_of_loops = (len(lab_ids_allocated) // records_per_request)
+    # if the remainder is greater than 0, add 1 to the number of loops
+    if (len(lab_ids_allocated) % records_per_request) > 0:
+        num_of_loops += 1
+
     for i in range(0, num_of_loops):
         try:
             logger.info("Thread {} Loop: {}".format(thread_id, i))
-            # get the lab ids for the features in the batch
-            lab_ids = [f.attributes["Lab_ID"] for f in fset[i * records_per_request: (i + 1) * records_per_request]]
+            # get the lab ids for the lab ids in the request
+            lab_ids = lab_ids_allocated[i * records_per_request: (i + 1) * records_per_request]
+            if len(lab_ids) == 0:
+                return num_of_results
 
             # format the lab ids as a string with single quotes
             lab_ids_str = ",".join(["'{}'".format(x) for x in lab_ids])
-            logger.info("\tLab IDs: {}".format(lab_ids_str))
+            logger.info("\tThread ID: {} Lab IDs: {}".format(thread_id, lab_ids_str))
 
             sites_q_results = sites_layer.query(where = "Lab_ID IN ({})".format(lab_ids_str), out_fields="*",
                                         return_all_records = True, return_geometry=True,
@@ -77,24 +83,28 @@ def calculate_watershed_for_featureset(sites_layer, watershedFeatureLayer, adjPo
 
             # calculate the watershed for the site using ArcGIS Python API create_watersheds
             output_fc = create_watersheds(sitefc, context=context)
+            num_watersheds_generated = len(output_fc["watershed_layer"].layer.featureSet.features)
 
-            num_of_results += len(output_fc["watershed_layer"].layer.featureSet.features)
-            logger.info("\t{} watersheds calculated by thread {}. Appending to the feature layer...".format(num_of_results, thread_id))
+            num_of_results += num_watersheds_generated
+            logger.info("\tThread ID: {}: {} watersheds calculated. ".format(thread_id, num_of_results))
 
-            # append the calculated watershed to the watershedFeatureLayer
-            addResults_watershed = watershedFeatureLayer.edit_features(adds=output_fc["watershed_layer"].layer.featureSet.features)
-            logger.info("\tWatershed addResults: {}".format(addResults_watershed))
+            if num_watersheds_generated > 0:
+                # append the calculated watershed to the watershedFeatureLayer
+                addResults_watershed = watershedFeatureLayer.edit_features(adds=output_fc["watershed_layer"].layer.featureSet.features)
+                logger.info("\tThread ID: {}: Watershed addResults: {}".format(thread_id, addResults_watershed))
 
-            # append the calculated adjPoints to the adjPointsFeatureLayer
-            addResults_adjPoint = adjPointsFeatureLayer.edit_features(adds=output_fc["snap_pour_pts_layer"].layer.featureSet.features)
-            logger.info("\tAdjPoints addResults: {}".format(addResults_adjPoint))
+                # append the calculated adjPoints to the adjPointsFeatureLayer
+                addResults_adjPoint = adjPointsFeatureLayer.edit_features(adds=output_fc["snap_pour_pts_layer"].layer.featureSet.features)
+                logger.info("\tThread ID: {}: AdjPoints addResults: {}".format(thread_id, addResults_adjPoint))
 
         except Exception:
-            logger.info(traceback.format_exc())
-        finally:
-            #sleep for 2 minutes
+            logger.info("Thread {} exception {}".format(thread_id, traceback.format_exc()))
             time.sleep(120)
+        finally:
+            time.sleep(seconds_between_requests)
             continue
+
+        return num_of_results
 
 if __name__ == "__main__":
 
@@ -130,32 +140,52 @@ if __name__ == "__main__":
 
         records_per_request = parameters["records_per_request"]
         number_of_threads = parameters["number_of_threads"]
+        seconds_between_requests = parameters["seconds_between_requests"]
+        logger.info("Number of Threads: {}".format(number_of_threads))
+        logger.info("Records per Request: {}".format(records_per_request))
+        logger.info("Seconds Between Requests: {}".format(seconds_between_requests))
 
         outputWatershedItem = gis.content.get(outputWatershedItemId)
         watershedFeatureLayer = outputWatershedItem.layers[0]
         adjPointsFeatureLayer = outputWatershedItem.layers[1]
 
-        resp_watershed = watershedFeatureLayer.query("1=1", out_fields="Lab_ID", return_all_records=True, return_geometry=False)
-        calculated_sites = [f.attributes["Lab_ID"] for f in resp_watershed.features]
-        # join the text values in the list to a comma separated string with single quotes
-        calculated_sites_str = ",".join(["'{}'".format(x) for x in calculated_sites])
-
-        # return the id of the sites that have not been calculated
-        sites_resp = sites_layer.query(where = "Lab_ID NOT IN ({})".format(calculated_sites_str), out_fields="Lab_ID",
+        # return all the id of the sites
+        sites_resp = sites_layer.query(where = "1=1", out_fields="Lab_ID",
                                        return_all_records = True, return_geometry=False,
                                        order_by_fields="Lab_ID {}".format(order_direction))
+        all_sites = [f.attributes["Lab_ID"] for f in sites_resp.features]
+        logger.info("all_sites: {}".format(all_sites))
 
-        layer_definition = sites_layer.properties
-        num_of_features = len(sites_resp.features)
+        # return all the unique Lab Ids of the sites that have already been calculated
+        watershed_resp = watershedFeatureLayer.query("1=1", out_fields="Lab_ID", return_distinct_values = True,
+                                                     return_all_records=True, return_geometry=False)
+        calculated_sites = [f.attributes["Lab_ID"] for f in watershed_resp.features]
+        logger.info("calculated_sites: {}".format(calculated_sites))
+
+        # get the lab ids of the sites that have not been calculated
+        sites_to_calculate = list(set(all_sites) - set(calculated_sites))
+        logger.info("sites_to_calculate: {}".format(sites_to_calculate))
+
+        num_of_features = len(sites_to_calculate)
+        logger.info("total {}, calculated {}, remaining {}".format(len(all_sites), len(calculated_sites), num_of_features))
+
         # exit if there are no more sites to calculate
         if num_of_features == 0:
             exit()
 
-        records_per_thread = num_of_features // number_of_threads + 1
+        records_per_thread = (num_of_features // number_of_threads)
+        # if the remainder is greater than 0, add 1 to the records per thread
+        if (num_of_features % number_of_threads) > 0:
+            records_per_thread += 1
+
+        logger.info("Records per Thread: {}".format(records_per_thread))
+
         threads = list()
         for i in range(0, number_of_threads):
-            fset = sites_resp.features[i * records_per_thread: (i + 1) * records_per_thread]
-            x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, fset, records_per_request, i))
+            # get the lab ids from sites_to_calculate for the current thread
+            lab_ids_allocated = sites_to_calculate[i * records_per_thread: (i + 1) * records_per_thread]
+            logger.info("Thread {}: Lab IDs: {}".format(i, lab_ids_allocated))
+            x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, i))
             threads.append(x)
             x.start()
 
