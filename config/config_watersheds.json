@@ -1,0 +1,45 @@
+{
+
+  "log_folder": "C:\\dev\\USGS_MRP\\logs",
+
+  "sitesConfig": {
+   "itemId": "84544fef931d4d7db5edc46891fc481e",
+   "layerId": 0
+  },
+  "order_direction": "ASC",
+  "outputWatershedLayerConfig": {
+    "itemId": "4f9e3847eeb6445191acfe58e5a01ddc"
+    },
+  "search_parameters": {
+    "comments": "Set search_distance to -1 to use the default of ArcGIS REST API, calculated as the resolution of the source data multiplied by 10. https://developers.arcgis.com/rest/analysis/api-reference/create-watersheds.htm",
+    "search_distance": 2000,
+    "search_units": "Meters"
+  },
+  "records_per_request": 2,
+  "number_of_threads": 2,
+  "seconds_between_requests": 90,
+
+ "the_portal": {
+   "url": "https://esprd.maps.arcgis.com/",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   "user": "pinde",
+   "pass": "KevkDear2o22!!"
+ }
+}

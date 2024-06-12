@@ -200,7 +200,7 @@ if __name__ == "__main__":
     this_filename = os.path.split(os.path.realpath(__file__))[1]
 
     # Collect Configured Parameters
-    parameters = get_config(os.path.join(this_dir, './config/config_watershed.json'))
+    parameters = get_config(os.path.join(this_dir, './config/config_watersheds.json'))
     # Get Logger & Log Directory
     log_folder = parameters["log_folder"]
     logger, log_dir, log_file_name = get_logger(log_folder, this_filename, start_time)

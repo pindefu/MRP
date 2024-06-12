@@ -53,7 +53,7 @@ def get_logger(l_dir, t_filename, s_time):
 
     return logger, l_dir, l_file_name
 
-def calculate_watershed_for_featureset(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, thread_id):
+def calculate_watershed_for_featureset(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, thread_id):
     logger.info("Thread ID: {}".format(thread_id))
     context = {"overwrite": False}
     num_of_results = 0
@@ -81,8 +81,14 @@ def calculate_watershed_for_featureset(sites_layer, watershedFeatureLayer, adjPo
 
             sitefc = FeatureCollection(sites_q_results.to_dict())
 
-            # calculate the watershed for the site using ArcGIS Python API create_watersheds
-            output_fc = create_watersheds(sitefc, context=context)
+            # calculate the watershed for the sitefc
+            if "search_distance" in search_parameters and "search_units" in search_parameters and search_parameters["search_distance"] >=0:
+                search_distance = search_parameters["search_distance"]
+                search_units = search_parameters["search_units"]
+                output_fc = create_watersheds(sitefc, context=context, search_distance=search_distance, search_units=search_units)
+            else:
+                output_fc = create_watersheds(sitefc, context=context)
+
             num_watersheds_generated = len(output_fc["watershed_layer"].layer.featureSet.features)
 
             num_of_results += num_watersheds_generated
@@ -116,7 +122,7 @@ if __name__ == "__main__":
     this_filename = os.path.split(os.path.realpath(__file__))[1]
 
     # Collect Configured Parameters
-    parameters = get_config(os.path.join(this_dir, './config/config_watershed.json'))
+    parameters = get_config(os.path.join(this_dir, './config/config_watersheds.json'))
     # Get Logger & Log Directory
     log_folder = parameters["log_folder"]
     logger, log_dir, log_file_name = get_logger(log_folder, this_filename, start_time)
@@ -137,6 +143,7 @@ if __name__ == "__main__":
         sitesItem=gis.content.get(sitesItemId)
         sites_layer = sitesItem.layers[sites_layerId]
         order_direction = parameters["order_direction"]
+        search_parameters = parameters["search_parameters"]
 
         records_per_request = parameters["records_per_request"]
         number_of_threads = parameters["number_of_threads"]
@@ -148,6 +155,8 @@ if __name__ == "__main__":
         outputWatershedItem = gis.content.get(outputWatershedItemId)
         watershedFeatureLayer = outputWatershedItem.layers[0]
         adjPointsFeatureLayer = outputWatershedItem.layers[1]
+
+
 
         # return all the id of the sites
         sites_resp = sites_layer.query(where = "1=1", out_fields="Lab_ID",
@@ -185,7 +194,7 @@ if __name__ == "__main__":
             # get the lab ids from sites_to_calculate for the current thread
             lab_ids_allocated = sites_to_calculate[i * records_per_thread: (i + 1) * records_per_thread]
             logger.info("Thread {}: Lab IDs: {}".format(i, lab_ids_allocated))
-            x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, i))
+            x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, i))
             threads.append(x)
             x.start()
 
