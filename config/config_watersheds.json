@@ -12,11 +12,11 @@
     },
   "search_parameters": {
     "comments": "Set search_distance to -1 to use the default of ArcGIS REST API, calculated as the resolution of the source data multiplied by 10. https://developers.arcgis.com/rest/analysis/api-reference/create-watersheds.htm",
-    "search_distance": 2000,
+    "search_distance": -1,
     "search_units": "Meters"
   },
-  "records_per_request": 2,
-  "number_of_threads": 2,
+  "records_per_request": 4,
+  "number_of_threads": 5,
   "seconds_between_requests": 90,
 
  "the_portal": {

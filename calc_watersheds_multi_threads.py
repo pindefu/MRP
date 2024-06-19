@@ -156,8 +156,6 @@ if __name__ == "__main__":
         watershedFeatureLayer = outputWatershedItem.layers[0]
         adjPointsFeatureLayer = outputWatershedItem.layers[1]
 
-
-
         # return all the id of the sites
         sites_resp = sites_layer.query(where = "1=1", out_fields="Lab_ID",
                                        return_all_records = True, return_geometry=False,

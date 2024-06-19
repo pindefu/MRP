@@ -1,0 +1,61 @@
+{
+
+  "log_folder": "C:\\dev\\USGS_MRP\\logs",
+
+  "clarke_reference_config": {
+    "itemId": "4a5e7d91752d4b009f72bb52691daf04",
+    "tableId": 0
+  },
+
+  "tasks": [
+    {
+      "name": "Sample Points",
+      "skip": true,
+      "itemId": "b191404822da4805999e24f8934fabf1",
+      "itemId_Test": "de9fb3b7e9504a73a136fb6c16c98af2",
+      "isLayer": true,
+      "LyrTblid": 0
+    },
+    {
+      "name": "Watersheds",
+      "skip": false,
+      "itemId": "c60b09a709884a52a5dac5fd27b056b5",
+      "isLayer": true,
+      "LyrTblid": 0
+    }
+  ],
+
+  "tasks1": [
+    {
+      "name": "Sample Points",
+      "itemId": "b191404822da4805999e24f8934fabf1",
+      "isLayer": true,
+      "LyrTblid": 0
+    }
+  ],
+
+ "the_portal": {
+   "url1": "https://sandbox.maps.arcgis.com/",
+   "url": "https://usgs.maps.arcgis.com/",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   "user": "pfu_USGS",
+   "pass": "Kevk2o2!8**",
+
+   "user1": "pinde_env",
+   "pass1": "dearKevk8*"
+ }
+}
