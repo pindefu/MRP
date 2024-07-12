@@ -2,18 +2,20 @@
 
   "log_folder": "C:\\dev\\USGS_MRP\\logs",
 
-  "clarke_reference_config": {
-    "itemId": "4a5e7d91752d4b009f72bb52691daf04",
-    "tableId": 0
+  "rules_to_run": {
+    "isMultipart": false,
+    "isTooLargeOrSmall": true,
+    "isEnlongated": true
   },
 
   "tasks": [
     {
-      "name": "Sample Points",
+      "name": "Watersheds",
       "skip": false,
-      "itemId": "821837725f3b437395b3cfefc9243b8c",
+      "itemId": "4f9e3847eeb6445191acfe58e5a01ddc",
       "isLayer": true,
-      "LyrTblid": 0
+      "LyrTblid": 0,
+      "areaField": "AnalysisArea"
     }
   ],
 
