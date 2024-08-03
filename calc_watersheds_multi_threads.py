@@ -1,3 +1,4 @@
+import arcgis
 from arcgis.gis import GIS
 from arcgis.features import FeatureCollection
 from arcgis.features.analysis import create_watersheds
@@ -8,7 +9,7 @@ import logging
 import time
 import json
 import os
-
+import sys
 
 logger = None
 batch_size = 2500
@@ -135,6 +136,8 @@ if __name__ == "__main__":
     # Get Logger & Log Directory
     log_folder = parameters["log_folder"]
     logger, log_dir, log_file_name = get_logger(log_folder, this_filename, start_time)
+    logger.info("Python version {}".format(sys.version))
+    logger.info("ArcGIS Python API version {}".format(arcgis.__version__))
 
     the_portal = parameters['the_portal']
     portal_url = the_portal['url']
@@ -175,7 +178,7 @@ if __name__ == "__main__":
             adjPointsFeatureLayer = outputWatershedItem.layers[1]
 
             # return all the id of the sites
-            sites_resp = sites_layer.query(where = sWhere, out_fields=key_field, return_distinct_values = True,
+            sites_resp = sites_layer.query(where = sWhere, out_fields=[key_field], return_distinct_values = True,
                                            return_all_records = True, return_geometry=False)
             all_sites = [f.attributes[key_field] for f in sites_resp.features]
             logger.info("all_sites: {}".format(all_sites))

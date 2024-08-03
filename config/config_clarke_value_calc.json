@@ -7,15 +7,55 @@
     "tableId": 0
   },
 
-  "tasks": [
+  "tasks":  [
     {
-      "name": "Sample Points",
-      "skip": false,
-      "itemId": "821837725f3b437395b3cfefc9243b8c",
-      "isLayer": true,
-      "LyrTblid": 0
-    }
-  ],
+    "name": "Sediment_AK_wang",
+    "skip": false,
+    "itemId": "821837725f3b437395b3cfefc9243b8c",
+    "isLayer": true,
+    "LyrTblid": 0,
+    "fieldMapping": {
+        "Ce_ppm": "Ce_ppm_MS_ST",
+        "Mg_pct": "Mg_pct_AES_ST",
+        "K_pct": "K_pct_AES_ST"
+  }
+  },
+  {
+    "name": "Sediment_AK_wang: Watersheds",
+    "skip": true,
+    "itemId": "1512dd91ff5c4a04b89eee2ec4bf4176",
+    "isLayer": true,
+    "LyrTblid": 0
+  },
+ {
+    "name": "NURE_HSSR_IDMT",
+    "skip": true,
+    "itemId": "8e95ffda50d743d0bea5461fb8066d84",
+    "isLayer": true,
+    "LyrTblid": 0
+  },
+  {
+    "name": "NURE_HSSR_IDMT: Watersheds",
+    "skip": true,
+    "itemId": "3b3e99d31b5548b5bae9b767d5f0be2c",
+    "isLayer": true,
+    "LyrTblid": 0
+  },
+  {
+    "name": "NURE_HSSRv8",
+    "skip": true,
+    "itemId": "8d73ae56aff642c189bc33e3bfa6bb95",
+    "isLayer": true,
+    "LyrTblid": 0
+  },
+  {
+    "name": "NURE_HSSRv8: Watersheds",
+    "skip": true,
+    "itemId": "b2239b57b0064f3390bf5698f28e1529",
+    "isLayer": true,
+    "LyrTblid": 0
+  }
+],
 
  "the_portal": {
    "url1": "https://sandbox.maps.arcgis.com/",

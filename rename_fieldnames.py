@@ -344,7 +344,7 @@ if __name__ == "__main__":
             else:
                 taskLyrTble = taskItem.tables[taskLyrTblId]
 
-            delete_temp_fields(taskLyrTble)
+            #delete_temp_fields(taskLyrTble)
             # add_original_fieldnames(taskLyrTble)
             # change_field_alias(taskLyrTble)
             # change_string_fields_to_double(taskLyrTble)
