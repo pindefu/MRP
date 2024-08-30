@@ -110,12 +110,13 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
                 ReturnSnappedPoints=True
             )
 
-            time.sleep(2)
-            seconds_slept = 2
+            sleep_interval = 3
+            time.sleep(sleep_interval)
+            seconds_slept = sleep_interval
             while out_result.status < 4:
                 #print(out_result.status)
-                time.sleep(2)
-                seconds_slept += 2
+                time.sleep(sleep_interval)
+                seconds_slept += sleep_interval
 
             print("seconds_slept: {}".format(seconds_slept))
 
@@ -150,7 +151,6 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
             arcpy.management.Delete(out_watersheds_fc)
         except Exception:
             logger.info("Thread {} exception {}".format(thread_id, traceback.format_exc()))
-            time.sleep(60)
         finally:
             time.sleep(seconds_between_requests)
             continue

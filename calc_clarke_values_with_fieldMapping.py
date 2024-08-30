@@ -5,10 +5,10 @@ import logging
 import time
 import json
 import os
-
+import math
 
 logger = None
-batch_size = 2500
+batch_size = 2000
 num_failed_records = 0
 num_succeeded_records = 0
 
@@ -28,7 +28,7 @@ def get_logger(l_dir, t_filename, s_time):
     logger_date = datetime.fromtimestamp(s_time).strftime("%Y_%m_%d")
     logger_time = datetime.fromtimestamp(s_time).strftime("%H_%M_%S")
 
-    # Debug Handler for Console Checks - logger.info(msg)
+    # Debug Handler for Console Checks - print(msg)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.DEBUG)
     logger.addHandler(console_handler)
@@ -38,16 +38,77 @@ def get_logger(l_dir, t_filename, s_time):
     # if not os.path.exists(l_dir):
     #     os.makedirs(l_dir)
 
-    # Log Handler for Reports - logger.info(msg)
+    # Log Handler for Reports - print(msg)
     l_file_name = "Log_{}_{}_{}.txt".format(t_filename, logger_date, logger_time)
     l_dir_file_path = os.path.join(l_dir, l_file_name)
     log_handler = logging.FileHandler(l_dir_file_path, "w")
     log_handler.setLevel(logging.INFO)
     logger.addHandler(log_handler)
 
-    logger.info("Script Started: {} - {}".format(logger_date, logger_time))
+    print("Script Started: {} - {}".format(logger_date, logger_time))
 
     return logger, l_dir, l_file_name
+
+def run_update(the_func):
+    def wrapper(*args, **kwargs):
+        global batch_size
+        global num_failed_records
+        global num_succeeded_records
+
+        # Run Function & Collect Update List
+        edit_list = the_func(*args)
+        num_total_records = len(edit_list)
+
+        if edit_list:
+            operation = kwargs.get("operation", None)
+            # Batch Update List Into Smaller Sets
+            # batch_size = kwargs.get("batch", None)
+            use_global_ids = kwargs.get("use_global_ids", False)
+            if not batch_size:
+                batch_size = 1000
+            update_sets = [
+                edit_list[x : x + batch_size]
+                for x in range(0, len(edit_list), batch_size)
+            ]
+            # logger.info("\nProcessing {} Batch(es)\n".format(len(update_sets)))
+
+            # Push Edit Batches
+            try:
+                for update_set in update_sets:
+                    try:
+                        keyStr = ""
+                        if operation == "update":
+                            edit_result = kwargs.get("update").edit_features(updates=update_set, use_global_ids=use_global_ids)
+                            keyStr = "updateResults"
+                        else:  # add
+                            edit_result = kwargs.get("add").edit_features(adds=update_set)
+                            keyStr = "addResults"
+
+
+                        totalRecords = len(edit_result[keyStr])
+
+                        print("updateResults {}: {}".format(totalRecords, edit_result[keyStr]))
+
+                        succeeded_records = len(list(filter(lambda d: d["success"] == True,edit_result[keyStr],)))
+                        logger.info("\nBatch Edit Results: {} of {} succeeded".format(succeeded_records, totalRecords))
+                        num_succeeded_records = num_succeeded_records + succeeded_records
+                        if totalRecords > succeeded_records:
+                            failed_records = list(filter(lambda d: d["success"] == False,edit_result[keyStr],))
+                            num_failed_records = num_failed_records + len(failed_records)
+                            logger.info("\Failed records: {}".format(failed_records))
+
+
+                    except Exception:
+                        logger.info(traceback.format_exc())
+            except Exception:
+                logger.info(traceback.format_exc())
+            finally:
+                logger.info(" \n\n Summary: Total records {}, succeeded records {}, failed records {}".format(num_total_records, num_succeeded_records, num_failed_records))
+
+        else:
+            logger.info("Returned List Was Empty. No Edits Performed.")
+
+    return wrapper
 
 
 def calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping):
@@ -60,6 +121,11 @@ def calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping
     fields_to_add = []
     raw_Clarke_fields_lookup = {}
     org_element_fields_lookup = {}
+
+    # If no fieldMapping is provided, use the keys in the reference_dict as the element_fields
+    if fieldMapping is None or len(fieldMapping) == 0:
+        # Build the fieldMapping from the reference_dict, with the key and values as the field name
+        fieldMapping = {k: k for k in reference_dict.keys()}
 
 
     # Test purpose only: Use the first field in the element_fields list
@@ -75,7 +141,10 @@ def calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping
         # if fieldMapping is provided, use the field name in the fieldMapping
         element_field_name_in_target = None
         if fieldMapping is not None:
-            element_field_name_in_target = fieldMapping[reference_field_name]
+            reference_field_name_lower = fieldMapping[reference_field_name].lower()
+            for field in existing_fields:
+                if field["name"].lower() == reference_field_name_lower:
+                    element_field_name_in_target = field["name"]
         else:
             reference_field_name_lower = reference_field_name.lower()
             for field in existing_fields:
@@ -84,12 +153,15 @@ def calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping
 
         if element_field_name_in_target == None:
             print("Error: Field {} doesn't have corresponding field in the target layer or table".format(reference_field_name))
+            # remove the field from the fieldMapping
+            fieldMapping.pop(reference_field_name)
             continue
         else:
             for field in existing_fields:
                 if field["name"] == element_field_name_in_target:
                     if field["type"] != "esriFieldTypeDouble" and field["type"] != "esriFieldTypeInteger":
                         print("Error: Field {} is not a numeric field. Skpped".format(field["name"]))
+                        fieldMapping.pop(reference_field_name)
                     else:
                         print("Field {} is a numeric field".format(field["name"]))
                         target_field_names.append(field["name"])
@@ -123,33 +195,109 @@ def calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping
                 org_element_fields_lookup[new_field_name] = target_field_name
 
 
-    logger.info("Fields to add: {}".format(fields_to_add))
-    logger.info("raw_Clarke_fields_lookup: {}".format(raw_Clarke_fields_lookup))
+    print("Fields to add: {}".format(fields_to_add))
+    print("raw_Clarke_fields_lookup: {}".format(raw_Clarke_fields_lookup))
 
     # add the fields to the target layer or table
     if len(fields_to_add) > 0:
         add_fields_response = taskLyrTble.manager.add_to_definition({"fields": fields_to_add})
-        logger.info("Add Fields Response: {}".format(add_fields_response))
+        print("Add Fields Response: {}".format(add_fields_response))
     else:
-        logger.info("No fields to add")
+        print("No fields to add")
 
     # Calculate the Clarke values for each field in field mapping list: field_value / crustal_abundance
 
     for fld in fieldMapping:
         field_name = fieldMapping[fld]
         new_field_name = "{}_Clarke".format(field_name)
-        logger.info("To calculate field: {}".format(new_field_name))
+        print("To calculate field: {}".format(new_field_name))
 
         crustal_abundance = reference_dict[fld]
         if crustal_abundance is None or crustal_abundance == 0:
-            logger.info("Skipping. The reference crustal abundance of null or 0")
+            print("Skipping. The reference crustal abundance of null or 0")
             continue
         else:
             calc_sql_expresison = "ROUND({}/{}, 3)".format(field_name, crustal_abundance)
-            logger.info("field: {} = Calc Expression: {}".format(new_field_name, calc_sql_expresison))
-            calc_field_response = taskLyrTble.calculate(where="1=1", calc_expression={"field": new_field_name, "sqlExpression" : calc_sql_expresison})
+            print("field: {} = Calc Expression: {}".format(new_field_name, calc_sql_expresison))
+            calc_field_response = taskLyrTble.calculate(where="{} is null".format(new_field_name), calc_expression={"field": new_field_name, "sqlExpression" : calc_sql_expresison})
 
-            logger.info("Calc Field Response: {}".format(calc_field_response))
+            print("Calc Field Response: {}".format(calc_field_response))
+
+
+def calc_Clarke_value_percentiles_nthStdDev(taskLyrTble, taskItem, element_fields, reference_dict, fieldMapping):
+    # If no fieldMapping is provided, use the keys in the reference_dict as the element_fields
+    if fieldMapping is None or len(fieldMapping) == 0:
+        # Build the fieldMapping from the reference_dict, with the key and values as the field name
+        fieldMapping = {k: k for k in reference_dict.keys()}
+
+    # filter element_fields to find out whose names are in the fieldMapping keys
+    fieldMapping_keys = list(fieldMapping.keys())
+    selected_element_fields = [element_field for element_field in element_fields if element_field in fieldMapping_keys]
+
+    # ******************************************************* #
+    # Test purpose only: Use the first field in the element_fields list
+    # selected_element_fields = selected_element_fields[:1]
+    # ******************************************************* #
+    object_id_field = taskLyrTble.properties.objectIdField
+
+    # query the layer to return the objectid field and corrsponding clarke fields of the selected_element_fields
+    selected_clarke_fields = ["{}_Clarke".format(fieldMapping[element_field]) for element_field in selected_element_fields]
+    # create a new list of fields to use as the out_fields parameter
+    out_fields = [object_id_field] + selected_clarke_fields
+    logger.info("Out Fields: {}".format(out_fields))
+    query_result = taskLyrTble.query(where="1=1", out_fields=out_fields, return_all_records=True, return_geometry=False)
+
+    for clarke_fld_name in selected_clarke_fields:
+        pct_fld_name = "{}_Pct".format(clarke_fld_name)
+        nDev_fld_name = "{}_nDev".format(clarke_fld_name)
+        clarke_log_fld_name = "{}_Log".format(clarke_fld_name)
+        logger.info("Processing fields: {}, {}, {}".format(clarke_fld_name, pct_fld_name, nDev_fld_name))
+
+        # Calculate the percentiles first
+        # sort the features by the clarke_fld_name
+        query_result.features.sort(key=lambda x: x.attributes[clarke_fld_name])
+        num_values = len(query_result.features)
+        # loop through the features and calculate the percentile for each feature
+        logger.info("Calculating Percentiles for each feature")
+        i = 1
+        for f in query_result.features:
+            f.attributes[pct_fld_name] = round(i / num_values, 3)
+            i += 1
+            f.attributes[clarke_log_fld_name] = math.log(f.attributes[clarke_fld_name])
+
+        # Calculate the mean and standard deviation of the clarke_log_fld_name
+        logger.info("Calculating Mean and Standard Deviation for field: {}".format(clarke_log_fld_name))
+        clarke_log_values = [f.attributes[clarke_log_fld_name] for f in query_result.features]
+        mean_value = sum(clarke_log_values) / num_values
+        sum_of_squares = sum([(x - mean_value) ** 2 for x in clarke_log_values])
+        std_dev = (sum_of_squares / num_values) ** 0.5
+        logger.info("Mean: {}, Standard Deviation: {}".format(mean_value, std_dev))
+        logger.info("Calculating nth Standard Deviation for each feature")
+        for f in query_result.features:
+            val = f.attributes[clarke_log_fld_name]
+            f.attributes[nDev_fld_name] = calc_nth_standard_dev(mean_value, std_dev, val)
+            # remove the clarke_log_fld_name and the clarke_fld_name
+            f.attributes.pop(clarke_log_fld_name)
+            f.attributes.pop(clarke_fld_name)
+
+    logger.info("Features info to update: {}".format(query_result.features))
+    # Update the features
+    logger.info("Updating the features")
+    save_to_featurelayer(query_result.features,update=taskLyrTble, track=None, item=taskItem, operation="update", use_global_ids=False)
+
+@run_update
+def save_to_featurelayer(process_list):
+    logger.info("\tFeatures info to update: {}".format(process_list))
+    return process_list
+
+
+# Write a function to calcualte the n, as determined by the input value is >= mean + n * std_dev and <= mean + (n+1) * std_dev
+def calc_nth_standard_dev(mean_value, std_dev, value):
+    if value > mean_value:
+        return math.floor((value - mean_value) / std_dev)
+    else:
+        return 0 - math.floor((mean_value - value) / std_dev)
+
 
 if __name__ == "__main__":
 
@@ -192,10 +340,10 @@ if __name__ == "__main__":
 
         tasks = parameters['tasks']
         for task in tasks:
-            logger.info("\n\nStarting task: {}\n".format(task["name"]))
+            print("\n\nStarting task: {}\n".format(task["name"]))
             bSkip = task.get("skip", False)
             if bSkip:
-                logger.info("Task is skipped")
+                print("Task is skipped")
                 continue
 
             taskItemId = task["itemId"]
@@ -213,11 +361,12 @@ if __name__ == "__main__":
             if "fieldMapping" in task:
                 fieldMapping = task["fieldMapping"]
 
-            calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping)
+            #calc_Clarke_values(taskLyrTble, element_fields, reference_dict, fieldMapping)
+            calc_Clarke_value_percentiles_nthStdDev(taskLyrTble, taskItem, element_fields, reference_dict, fieldMapping)
 
     except Exception:
-        logger.info(traceback.format_exc())
+        print(traceback.format_exc())
 
     finally:
         # Log Run Time
-        logger.info('\n\nProgram Run Time: {0} Minutes'.format(round(((time.time() - start_time) / 60), 2)))
+        print('\n\nProgram Run Time: {0} Minutes'.format(round(((time.time() - start_time) / 60), 2)))
