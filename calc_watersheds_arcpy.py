@@ -54,7 +54,7 @@ def get_logger(l_dir, t_filename, s_time):
 
     return logger, l_dir, l_file_name
 
-def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, thread_id):
+def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, thread_id):
     logger.info("Thread ID: {}".format(thread_id))
 
     num_of_results = 0
@@ -86,10 +86,10 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
             # User Arcpy
             my_sr = arcpy.SpatialReference(sites_q_results.spatial_reference["wkid"])
 
-            # check if the im_memory sites feature class exists, if it does, delete it
+            # check if the in_memory sites feature class exists, if it does, delete it
             fc_name = "sites{}".format(thread_id)
-            if arcpy.Exists(fc_name):
-                arcpy.management.Delete(fc_name)
+            if arcpy.Exists(r"in_memory\{}".format(fc_name)):
+                arcpy.management.Delete(r"in_memory\{}".format(fc_name))
 
             # create a feature class from the sites_q_results features. The geometries need to be Arcpy geometries
             arcpy_sites = arcpy.management.CreateFeatureclass("in_memory", fc_name, "POINT", spatial_reference = my_sr)
@@ -99,6 +99,7 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
                 for site in sites_q_results.features:
                     #print(site.attributes[key_field])
                     cursor.insertRow([site.attributes[key_field], Geometry(site.geometry).as_arcpy])
+            del cursor
 
             out_result = arcpy.agolservices.Watershed(
                 InputPoints=arcpy_sites,
@@ -122,7 +123,6 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
 
             # Delete the in_memory feature class
             arcpy.management.Delete(arcpy_sites)
-            del cursor
 
             out_watersheds_fc = out_result.getOutput(0)
             out_pourpoints_fc = out_result.getOutput(1)
@@ -222,9 +222,6 @@ if __name__ == "__main__":
     logger.info("Records per Request: {}".format(records_per_request))
     logger.info("Seconds Between Requests: {}".format(seconds_between_requests))
 
-    # Get the Search Parameters for the Watershed Calculation
-    search_parameters = parameters["search_parameters"]
-
     try:
 
         for task in parameters["tasks"]:
@@ -237,7 +234,6 @@ if __name__ == "__main__":
             key_field = task['sitesConfig']["key_field"]
             outputWatershedItemId = task['outputWatershedLayerConfig']["itemId"]
             sWhere = task['sitesConfig']["where"]
-            order_direction = task["order_direction"]
 
             sitesItem=gis.content.get(sitesItemId)
             sites_layer = sitesItem.layers[sites_layerId]
@@ -285,9 +281,9 @@ if __name__ == "__main__":
             for i in range(0, number_of_threads):
                 # get the lab ids from sites_to_calculate for the current thread
                 lab_ids_allocated = sites_to_calculate[i * records_per_thread: (i + 1) * records_per_thread]
-                calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, i)
+                calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, i)
             #     logger.info("Thread {}: Lab IDs: {}".format(i, lab_ids_allocated))
-            #     x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, i))
+            #     x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, i))
             #     threads.append(x)
             #     x.start()
 
