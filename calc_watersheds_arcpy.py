@@ -54,8 +54,14 @@ def get_logger(l_dir, t_filename, s_time):
 
     return logger, l_dir, l_file_name
 
-def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, thread_id):
+def calculate_watershed_for_featureset(samples_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, thread_id):
     logger.info("Thread ID: {}".format(thread_id))
+
+    target_sr = watershedFeatureLayer.container.properties.spatialReference.wkid
+    # arcpy.agolservices.Watershed can't use memory feature class, so we use in_memory workspace
+    arcpy.env.overwriteOutput = True
+    arcpy.env.workspace = "in_memory"
+    arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(target_sr)
 
     num_of_results = 0
     # calculate the number of loops required to process in this thread
@@ -79,30 +85,30 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
             lab_ids_str = ",".join(["'{}'".format(x) for x in lab_ids])
             logger.info("\tThread ID: {} Lab IDs: {}".format(thread_id, lab_ids_str))
 
-            sites_q_results = sites_layer.query(where = "{} IN ({})".format(key_field, lab_ids_str), out_fields="*",
-                                        return_all_records = True, return_geometry=True)
+            samples_q_results = samples_layer.query(where = "{} IN ({})".format(key_field, lab_ids_str), out_fields="*",
+                                        return_all_records = True, return_geometry=True, out_sr = target_sr)
 
-            logger.info("\tThread ID: {}: {} sites found".format(thread_id, len(sites_q_results.features)))
+            logger.info("\tThread ID: {}: {} samples found".format(thread_id, len(samples_q_results.features)))
             # User Arcpy
-            my_sr = arcpy.SpatialReference(sites_q_results.spatial_reference["wkid"])
+            #my_sr = arcpy.SpatialReference(samples_q_results.spatial_reference["wkid"])
 
-            # check if the in_memory sites feature class exists, if it does, delete it
-            fc_name = "sites{}".format(thread_id)
+            # check if the in_memory samples feature class exists, if it does, delete it
+            fc_name = "samples{}".format(thread_id)
             if arcpy.Exists(r"in_memory\{}".format(fc_name)):
-                arcpy.management.Delete(r"in_memory\{}".format(fc_name))
+                arcpy.management.Delete(fc_name)
 
-            # create a feature class from the sites_q_results features. The geometries need to be Arcpy geometries
-            arcpy_sites = arcpy.management.CreateFeatureclass("in_memory", fc_name, "POINT", spatial_reference = my_sr)
-            arcpy.AddField_management(arcpy_sites, key_field, "TEXT")
+            # create a feature class from the samples_q_results features. The geometries need to be Arcpy geometries
+            arcpy_samples = arcpy.management.CreateFeatureclass("in_memory", fc_name, "POINT", spatial_reference = target_sr)
+            arcpy.AddField_management(arcpy_samples, key_field, "TEXT")
 
-            with arcpy.da.InsertCursor(arcpy_sites, [key_field, "SHAPE@"]) as cursor:
-                for site in sites_q_results.features:
-                    #print(site.attributes[key_field])
-                    cursor.insertRow([site.attributes[key_field], Geometry(site.geometry).as_arcpy])
+            with arcpy.da.InsertCursor(arcpy_samples, [key_field, "SHAPE@"]) as cursor:
+                for sample in samples_q_results.features:
+                    #print(sample.attributes[key_field])
+                    cursor.insertRow([sample.attributes[key_field], Geometry(sample.geometry).as_arcpy])
             del cursor
 
             out_result = arcpy.agolservices.Watershed(
-                InputPoints=arcpy_sites,
+                InputPoints=arcpy_samples,
                 PointIDField=key_field,
                 SnapDistance="",
                 SnapDistanceUnits="Meters",
@@ -122,7 +128,7 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
             print("seconds_slept: {}".format(seconds_slept))
 
             # Delete the in_memory feature class
-            arcpy.management.Delete(arcpy_sites)
+            arcpy.management.Delete(arcpy_samples)
 
             out_watersheds_fc = out_result.getOutput(0)
             out_pourpoints_fc = out_result.getOutput(1)
@@ -133,20 +139,24 @@ def calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureL
                 num_of_results += num_features_generated
                 logger.info("\tThread ID: {}: {} -> {} watersheds calculated. ".format(thread_id, num_features_generated, num_of_results))
 
+                # project the output  feature class to the target spatial reference
+                out_watersheds_fc_projected = arcpy.management.Project(out_watersheds_fc, "in_memory\watersheds_projected", target_sr)
+                out_pourpoints_fc_projected = arcpy.management.Project(out_pourpoints_fc, "in_memory\pourpoints_projected", target_sr)
+
                 if len(watershed_attribute_fields_to_include) == 0:
-                    fieldList = arcpy.ListFields(out_watersheds_fc)
+                    fieldList = arcpy.ListFields(out_watersheds_fc_projected)
                     for f in fieldList:
                         if f.type != "Geometry" and f.name not in fields_to_skip:
                             watershed_attribute_fields_to_include.append(f.name)
 
                 if len(Pourpoint_attribute_fields_to_include) == 0:
-                    fieldList = arcpy.ListFields(out_pourpoints_fc)
+                    fieldList = arcpy.ListFields(out_pourpoints_fc_projected)
                     for f in fieldList:
                         if f.type != "Geometry" and f.name not in fields_to_skip:
                             Pourpoint_attribute_fields_to_include.append(f.name)
 
-                save_to_feature_layer(out_watersheds_fc, watershedFeatureLayer, thread_id, watershed_attribute_fields_to_include, key_field)
-                save_to_feature_layer(out_pourpoints_fc, adjPointsFeatureLayer, thread_id, Pourpoint_attribute_fields_to_include, key_field)
+                save_to_feature_layer(out_watersheds_fc_projected, watershedFeatureLayer, thread_id, watershed_attribute_fields_to_include, key_field)
+                save_to_feature_layer(out_pourpoints_fc_projected, adjPointsFeatureLayer, thread_id, Pourpoint_attribute_fields_to_include, key_field)
 
             arcpy.management.Delete(out_watersheds_fc)
         except Exception:
@@ -172,13 +182,14 @@ def save_to_feature_layer(out_fc, targetFeatureLayer, thread_id, fields_to_inclu
             for i in range(1, len(row)):
                 new_feature["attributes"][fields_to_include[i - 1]] = row[i]
 
-            new_feature["attributes"][key_field] = new_feature["attributes"]["PourPtID"]
+            #new_feature["attributes"][key_field] = new_feature["attributes"]["PourPtID"]
             list_out_features.append(new_feature)
     del cursor
 
     num_features_generated = len(list_out_features)
 
     if num_features_generated > 0:
+        logger.info("\tFeatures to add: {}".format(list_out_features))
         # append
         addResults_watershed = targetFeatureLayer.edit_features(adds=list_out_features)
         # the results is in this format:
@@ -188,6 +199,9 @@ def save_to_feature_layer(out_fc, targetFeatureLayer, thread_id, fields_to_inclu
         num_succeeded_records = len(list(filter(lambda d: d["success"] == True, addResults_watershed["addResults"])))
         num_failed_records = num_features_generated - num_succeeded_records
         logger.info("\tThread ID: {}: add features: {} succeeded, {} failed".format(thread_id, num_succeeded_records, num_failed_records))
+        if num_failed_records > 0:
+            logger.info(list_out_features)
+            logger.info(addResults_watershed)
 
 
 
@@ -209,18 +223,27 @@ if __name__ == "__main__":
     logger.info("ArcGIS Python API version {}".format(arcgis.__version__))
 
     the_portal = parameters['the_portal']
-    portal_url = the_portal['url']
-    the_username = the_portal['user']
-    the_password = the_portal['pass']
-    gis = GIS(portal_url, the_username, the_password)
+    use_ArcGIS_Pro = the_portal['use_ArcGIS_Pro']
+
+    if use_ArcGIS_Pro:
+        gis = GIS("pro")
+    else:
+        portal_url = the_portal['url']
+        the_username = the_portal['user']
+        the_password = the_portal['pass']
+        gis = GIS(portal_url, the_username, the_password)
+
 
     # Get Parameters about multi-threading
     records_per_request = parameters["records_per_request"]
-    number_of_threads = parameters["number_of_threads"]
-    seconds_between_requests = parameters["seconds_between_requests"]
-    logger.info("Number of Threads: {}".format(number_of_threads))
+    number_of_threads = 1 # parameters["number_of_threads"]
+    seconds_between_requests = 0 # parameters["seconds_between_requests"]
+    #logger.info("Number of Threads: {}".format(number_of_threads))
     logger.info("Records per Request: {}".format(records_per_request))
-    logger.info("Seconds Between Requests: {}".format(seconds_between_requests))
+    #logger.info("Seconds Between Requests: {}".format(seconds_between_requests))
+
+    # Get the Search Parameters for the Watershed Calculation
+    search_parameters = {} # parameters["search_parameters"]
 
     try:
 
@@ -229,44 +252,48 @@ if __name__ == "__main__":
             if task["skip"] == True:
                 continue
 
-            sitesItemId = task['sitesConfig']["itemId"]
-            sites_layerId = task['sitesConfig']["layerId"]
-            key_field = task['sitesConfig']["key_field"]
+            samplesItemId = task['inputLayerConfig']["itemId"]
+            samples_layerId = task['inputLayerConfig']["layerId"]
+            key_field = task['inputLayerConfig']["key_field"]
             outputWatershedItemId = task['outputWatershedLayerConfig']["itemId"]
-            sWhere = task['sitesConfig']["where"]
+            watershed_layer_id = task['outputWatershedLayerConfig']["watershed_layer_id"]
+            adjPoints_layer_id = task['outputWatershedLayerConfig']["snapped_points_layer_id"]
+            output_key_field = task['outputWatershedLayerConfig']["key_field"]
+            sWhere = task['inputLayerConfig']["where"]
 
-            sitesItem=gis.content.get(sitesItemId)
-            sites_layer = sitesItem.layers[sites_layerId]
+            samplesItem=gis.content.get(samplesItemId)
+            samples_layer = samplesItem.layers[samples_layerId]
 
             outputWatershedItem = gis.content.get(outputWatershedItemId)
-            watershedFeatureLayer = outputWatershedItem.layers[0]
-            adjPointsFeatureLayer = outputWatershedItem.layers[1]
 
-            # return all the id of the sites
-            sites_resp = sites_layer.query(where = sWhere, out_fields=[key_field], return_distinct_values = True,
+            watershedFeatureLayer = outputWatershedItem.layers[watershed_layer_id]
+            adjPointsFeatureLayer = outputWatershedItem.layers[adjPoints_layer_id]
+
+            # return all the id of the samples
+            samples_resp = samples_layer.query(where = sWhere, out_fields=[key_field], return_distinct_values = True,
                                            return_all_records = True, return_geometry=False)
-            all_sites = [f.attributes[key_field] for f in sites_resp.features]
-            logger.info("all_sites: {}".format(all_sites))
-            len_all_sites = len(all_sites)
+            all_samples = [f.attributes[key_field] for f in samples_resp.features]
+            logger.info("all_samples: {}".format(all_samples))
+            len_all_samples = len(all_samples)
 
             # truncate the watersheds feature layer
             #watershedFeatureLayer.delete_features(where="1=1")
-            # return all the unique Lab Ids of the sites that have already been calculated
-            watershed_resp = watershedFeatureLayer.query("1=1", out_fields=key_field, return_distinct_values = True,
+            # return all the unique Ids of the samples that have already been calculated
+            watershed_resp = watershedFeatureLayer.query("1=1", out_fields=output_key_field, return_distinct_values = True,
                                                         return_all_records=True, return_geometry=False)
-            calculated_sites = [f.attributes[key_field] for f in watershed_resp.features]
-            logger.info("calculated_sites: {}".format(calculated_sites))
-            len_calculated_sites = len(calculated_sites)
+            calculated_samples = [f.attributes[output_key_field] for f in watershed_resp.features]
+            logger.info("calculated_samples: {}".format(calculated_samples))
+            len_calculated_samples = len(calculated_samples)
 
-            # get the lab ids of the sites that have not been calculated
-            sites_to_calculate = list(set(all_sites) - set(calculated_sites))
+            # get the lab ids of the samples that have not been calculated
+            samples_to_calculate = list(set(all_samples) - set(calculated_samples))
 
-            logger.info("sites_to_calculate: {}".format(sites_to_calculate))
+            logger.info("samples_to_calculate: {}".format(samples_to_calculate))
 
-            num_of_features = len(sites_to_calculate)
-            logger.info("total {}, calculated {}, remaining {}".format(len_all_sites, len_calculated_sites, num_of_features))
+            num_of_features = len(samples_to_calculate)
+            logger.info("total {}, calculated {}, remaining {}".format(len_all_samples, len_calculated_samples, num_of_features))
 
-            # Go to the next task if there are no more sites to calculate
+            # Go to the next task if there are no more samples to calculate
             if num_of_features == 0:
                 continue
 
@@ -279,11 +306,11 @@ if __name__ == "__main__":
 
             threads = list()
             for i in range(0, number_of_threads):
-                # get the lab ids from sites_to_calculate for the current thread
-                lab_ids_allocated = sites_to_calculate[i * records_per_thread: (i + 1) * records_per_thread]
-                calculate_watershed_for_featureset(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, i)
+                # get the lab ids from samples_to_calculate for the current thread
+                lab_ids_allocated = samples_to_calculate[i * records_per_thread: (i + 1) * records_per_thread]
+                calculate_watershed_for_featureset(samples_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, i)
             #     logger.info("Thread {}: Lab IDs: {}".format(i, lab_ids_allocated))
-            #     x = threading.Thread(target=calculate_watershed_for_featureset, args=(sites_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, i))
+            #     x = threading.Thread(target=calculate_watershed_for_featureset, args=(samples_layer, key_field, watershedFeatureLayer, adjPointsFeatureLayer, lab_ids_allocated, records_per_request, seconds_between_requests, search_parameters, i))
             #     threads.append(x)
             #     x.start()
 
