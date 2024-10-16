@@ -64,10 +64,10 @@ def calculate_watershed_for_featureset(
 ):
 
     target_sr = watershedFeatureLayer.container.properties.spatialReference.wkid
-    # arcpy.agolservices.Watershed can't use memory feature class, so we use in_memory workspace
+
     arcpy.env.overwriteOutput = True
-    arcpy.env.workspace = "in_memory"
     arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(target_sr)
+    sleep_interval = 3
 
     num_of_results = 0
     # calculate the number of loops required to process
@@ -88,33 +88,19 @@ def calculate_watershed_for_featureset(
 
             # format the lab ids as a string with single quotes
             lab_ids_str = ",".join(["'{}'".format(x) for x in lab_ids])
-            logger.info("\tLab IDs: {}".format(lab_ids_str))
+            logger.info("\tKey IDs: {}".format(lab_ids_str))
 
-            samples_q_results = samples_layer.query(
-                where="{} IN ({})".format(key_field, lab_ids_str),
-                out_fields="*",
-                return_all_records=True,
-                return_geometry=True,
-                out_sr=target_sr,
+            # create an arcpy feature set by querying the samples layer
+            arcpy_samples_fset = arcpy.FeatureSet(
+                samples_layer.url,
+                where_clause="{} IN ({})".format(key_field, lab_ids_str),
             )
 
-            logger.info("\t{} samples found".format(len(samples_q_results.features)))
-
-            # check if the in_memory samples feature class exists, if it does, delete it
-            fc_name = "samples"
-            arcpy_samples = r"in_memory\{}".format(fc_name)
-            if arcpy.Exists(arcpy_samples):
-                arcpy.management.Delete(arcpy_samples)
-
-            samples_sdf = samples_q_results.sdf
-
-            # create a feature class from the spatial dataframe
-            samples_sdf.spatial.to_featureclass(
-                location=r"in_memory\{}".format(fc_name)
-            )
+            num_samples = int(arcpy.management.GetCount(arcpy_samples_fset)[0])
+            logger.info("\tCalculating watersheds for {} points".format(num_samples))
 
             out_result = arcpy.agolservices.Watershed(
-                InputPoints=r"in_memory\{}".format(fc_name),
+                InputPoints=arcpy_samples_fset,
                 PointIDField=key_field,
                 SnapDistance="",
                 SnapDistanceUnits="Meters",
@@ -123,18 +109,13 @@ def calculate_watershed_for_featureset(
                 ReturnSnappedPoints=True,
             )
 
-            sleep_interval = 3
-            time.sleep(sleep_interval)
-            seconds_slept = sleep_interval
+            seconds_slept = 0
             while out_result.status < 4:
                 # print(out_result.status)
                 time.sleep(sleep_interval)
                 seconds_slept += sleep_interval
 
-            print("seconds_slept: {}".format(seconds_slept))
-
-            # Delete the in_memory feature class
-            arcpy.management.Delete(arcpy_samples)
+            print("\tTime used: {} seconds".format(seconds_slept))
 
             out_watersheds_fc = out_result.getOutput(0)
             out_pourpoints_fc = out_result.getOutput(1)
@@ -146,13 +127,17 @@ def calculate_watershed_for_featureset(
             if num_features_generated > 0:
                 num_of_results += num_features_generated
                 logger.info(
-                    "\t{} -> {} watersheds calculated. ".format(
+                    "\t{} watersheds calculated. Total watersheds {} ".format(
                         num_features_generated, num_of_results
                     )
                 )
 
-                save_to_feature_layer(out_watersheds_fc, watershedFeatureLayer)
-                save_to_feature_layer(out_pourpoints_fc, adjPointsFeatureLayer)
+                save_to_feature_layer(
+                    out_watersheds_fc, watershedFeatureLayer, "Watersheds"
+                )
+                save_to_feature_layer(
+                    out_pourpoints_fc, adjPointsFeatureLayer, "PourPoints"
+                )
 
             # delete the out_result
             arcpy.management.Delete(out_result)
@@ -163,7 +148,7 @@ def calculate_watershed_for_featureset(
             continue
 
 
-def save_to_feature_layer(out_fc, targetFeatureLayer):
+def save_to_feature_layer(out_fc, targetFeatureLayer, lyr_name=None):
 
     fs = arcpy.FeatureSet(out_fc)
     fset = arcgis.features.FeatureSet.from_arcpy(fs)
@@ -180,11 +165,12 @@ def save_to_feature_layer(out_fc, targetFeatureLayer):
         )
         num_failed_records = num_features_generated - num_succeeded_records
         logger.info(
-            "\tAdd features: {} succeeded, {} failed".format(
-                num_succeeded_records, num_failed_records
+            "\tAdd {}: {} succeeded, {} failed".format(
+                lyr_name, num_succeeded_records, num_failed_records
             )
         )
         if num_failed_records > 0:
+            logger.info("\tFailed to add {}".format(lyr_name))
             logger.info(fset.features)
             logger.info(addResults)
 
@@ -205,6 +191,7 @@ if __name__ == "__main__":
     logger, log_dir, log_file_name = get_logger(log_folder, this_filename, start_time)
     logger.info("Python version {}".format(sys.version))
     logger.info("ArcGIS Python API version {}".format(arcgis.__version__))
+    logger.info("ArcPy version {}".format(arcpy.GetInstallInfo()["Version"]))
 
     the_portal = parameters["the_portal"]
     use_ArcGIS_Pro = the_portal["use_ArcGIS_Pro"]
@@ -263,7 +250,7 @@ if __name__ == "__main__":
                 return_geometry=False,
             )
             all_samples = [f.attributes[key_field] for f in samples_resp.features]
-            logger.info("all_samples: {}".format(all_samples))
+            # logger.info("All samples: {}".format(all_samples))
             len_all_samples = len(all_samples)
 
             # return all the unique Ids of the samples that have already been calculated
@@ -277,17 +264,17 @@ if __name__ == "__main__":
             calculated_samples = [
                 f.attributes[output_key_field] for f in watershed_resp.features
             ]
-            logger.info("calculated_samples: {}".format(calculated_samples))
+            # logger.info("Calculated samples: {}".format(calculated_samples))
             len_calculated_samples = len(calculated_samples)
 
             # get the lab ids of the samples that have not been calculated
             samples_to_calculate = list(set(all_samples) - set(calculated_samples))
 
-            logger.info("samples_to_calculate: {}".format(samples_to_calculate))
+            logger.info("Samples to calculate: {}".format(samples_to_calculate))
 
             num_of_features = len(samples_to_calculate)
             logger.info(
-                "total {}, calculated {}, remaining {}".format(
+                "\n\nTotal {}, Calculated {}, Remaining {}".format(
                     len_all_samples, len_calculated_samples, num_of_features
                 )
             )
