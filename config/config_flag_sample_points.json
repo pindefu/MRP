@@ -1,0 +1,38 @@
+{
+  "log_folder": "C:\\dev\\USGS_MRP\\logs",
+
+  "rules_to_run": {
+    "flag_rounded": {
+      "skip": false,
+      "field_to_calc_x": "Flag_RoundedX",
+      "field_to_calc_y": "Flag_RoundedY",
+      "latitide_field": "LATITUDE",
+      "longitude_field": "LONGITUDE"
+    },
+    "flag_corners": {
+      "skip": false,
+      "field_to_calc": "Flag_Corners",
+      "latitide_field": "LONGITUDE_WGS84",
+      "longitude_field": "LATITUDE_WGS84"
+    },
+    "flag_ridges": {
+      "comment": "Not automated. Need to be done manually"
+    }
+  },
+
+  "tasks": [
+    {
+      "name": "Sample Points",
+      "skip": false,
+      "itemId": "5c78fa2a18dd4f488b2bbbdbed0a86b7",
+      "lyrId": 0
+    }
+  ],
+  "the_portal": {
+    "use_ArcGIS_Pro": true,
+    "url": "https://usgs.maps.arcgis.com/",
+
+    "user": "pfu_USGS",
+    "pass": "xxxxxx"
+  }
+}

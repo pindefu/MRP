@@ -1,112 +1,45 @@
 {
-
   "log_folder": "C:\\dev\\USGS_MRP\\logs",
 
-  "records_per_request": 1,
-  "number_of_threads": 5,
-  "seconds_between_requests": 10,
-
-  "search_parameters": {
-    "comments": "Set search_distance to -1 to use the default of ArcGIS REST API, calculated as the resolution of the source data multiplied by 10. https://developers.arcgis.com/rest/analysis/api-reference/create-watersheds.htm",
-    "search_distance": -1,
-    "search_units": "Meters"
-  },
-
+  "records_per_request": 2,
   "tasks": [
-    {
-      "name": "Reanalyzed_NURE_HSSR_AK",
-      "skip": true,
-      "sitesConfig": {
-        "itemId": "bc30e664b5e44b74b80caef053448647",
-        "layerId": 0,
-        "key_field": "Lab_ID",
-        "where": "Lab_ID IS NOT NULL and Lat_NAD27 IS NOT NULL and Long_NAD27 IS NOT NULL and Primary_Class = 'sediment' And Sample_Source = 'stream/river'"
-      },
-      "order_direction": "DESC",
-      "outputWatershedLayerConfig": {
-        "itemId": "954390e573d4494e9294d00dabf747d6"
-        }
-    },
     {
       "name": "Reanalyzed_NURE_HSSRv8",
       "skip": true,
-      "sitesConfig": {
+      "inputLayerConfig": {
         "itemId": "8d73ae56aff642c189bc33e3bfa6bb95",
         "layerId": 0,
         "key_field": "Lab_ID",
         "where": "Lab_ID IS NOT NULL and Lat_NAD27 IS NOT NULL and Long_NAD27 IS NOT NULL and Primary_Class = 'sediment' And Sample_Source = 'stream/river'"
       },
-      "order_direction": "DESC",
       "outputWatershedLayerConfig": {
-        "itemId": "b2239b57b0064f3390bf5698f28e1529"
-        }
+        "itemId": "9d7c0b5f540746edaa1ecdc3cf09830f",
+        "watershed_layer_id": 0,
+        "snapped_points_layer_id": 1
+      }
     },
     {
-      "name": "Reanalyzed_NURE_HSSR_IDMT",
-      "skip": true,
-      "sitesConfig": {
-        "itemId": "8e95ffda50d743d0bea5461fb8066d84",
-        "layerId": 0,
-        "key_field": "Lab_ID",
-        "where": "Lab_ID IS NOT NULL and Lat_NAD27 IS NOT NULL and Long_NAD27 IS NOT NULL",
-        "where1": "Lab_ID IS NOT NULL and Lat_NAD27 IS NOT NULL and Long_NAD27 IS NOT NULL and Primary_Class = 'sediment' And Sample_Source = 'stream/river'"
-      },
-      "order_direction": "DESC",
-      "outputWatershedLayerConfig": {
-        "itemId": "3b3e99d31b5548b5bae9b767d5f0be2c"
-        }
-    },
-    {
-      "name": "reanalysis_sediment_AK_wang",
+      "name": "StreamSed_BV_subset",
       "skip": false,
-      "sitesConfig": {
-        "itemId": "821837725f3b437395b3cfefc9243b8c",
+      "inputLayerConfig": {
+        "itemId": "5c78fa2a18dd4f488b2bbbdbed0a86b7",
         "layerId": 0,
         "key_field": "LAB_ID",
-        "where": "LAB_ID IS NOT NULL and LATITUDE IS NOT NULL and LONGITUDE IS NOT NULL"
+        "where": "LAB_ID IS NOT NULL and LATITUDE_WGS84 IS NOT NULL and LONGITUDE_WGS84 IS NOT NULL"
       },
-      "order_direction": "DESC",
       "outputWatershedLayerConfig": {
-        "itemId": "1512dd91ff5c4a04b89eee2ec4bf4176"
-        }
-    },
-    {
-      "name": "reanalysis_wholeRock_AK_wang",
-      "skip": false,
-      "sitesConfig": {
-        "itemId": "1405ac3e1f4a435190f69e218c9c816f",
-        "layerId": 0,
-        "key_field": "LAB_ID",
-        "where": "LAB_ID IS NOT NULL and LATITUDE IS NOT NULL and LONGITUDE IS NOT NULL"
-      },
-      "order_direction": "DESC",
-      "outputWatershedLayerConfig": {
-        "itemId": "733a843206064d059c0b58fa6f794935"
-        }
+        "itemId": "6d53da9ad1624a8293633aef9caefcba",
+        "watershed_layer_id": 0,
+        "snapped_points_layer_id": 1
+      }
     }
   ],
 
+  "the_portal": {
+    "use_ArcGIS_Pro": true,
+    "url": "https://usgs.maps.arcgis.com/",
 
- "the_portal": {
-   "url": "https://sandbox.maps.arcgis.com/",
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-   "user": "pinde_env",
-   "pass": "dearKevk8*"
- }
+    "user": "pfu_USGS",
+    "pass": "xxxxxx"
+  }
 }

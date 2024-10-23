@@ -175,6 +175,25 @@ def save_to_feature_layer(out_fc, targetFeatureLayer, lyr_name=None):
             logger.info(addResults)
 
 
+def print_envs():
+    logger.info("Python version {}".format(sys.version))
+    logger.info("ArcGIS Python API version {}".format(arcgis.__version__))
+    logger.info("ArcPy version {}".format(arcpy.GetInstallInfo()["Version"]))
+
+
+def connect_to_portal(parameters):
+    the_portal = parameters["the_portal"]
+    use_ArcGIS_Pro = the_portal["use_ArcGIS_Pro"]
+
+    if use_ArcGIS_Pro:
+        return GIS("pro")
+    else:
+        portal_url = the_portal["url"]
+        the_username = the_portal["user"]
+        the_password = the_portal["pass"]
+        return GIS(portal_url, the_username, the_password)
+
+
 if __name__ == "__main__":
 
     # Get Start Time
@@ -189,20 +208,8 @@ if __name__ == "__main__":
     # Get Logger & Log Directory
     log_folder = parameters["log_folder"]
     logger, log_dir, log_file_name = get_logger(log_folder, this_filename, start_time)
-    logger.info("Python version {}".format(sys.version))
-    logger.info("ArcGIS Python API version {}".format(arcgis.__version__))
-    logger.info("ArcPy version {}".format(arcpy.GetInstallInfo()["Version"]))
-
-    the_portal = parameters["the_portal"]
-    use_ArcGIS_Pro = the_portal["use_ArcGIS_Pro"]
-
-    if use_ArcGIS_Pro:
-        gis = GIS("pro")
-    else:
-        portal_url = the_portal["url"]
-        the_username = the_portal["user"]
-        the_password = the_portal["pass"]
-        gis = GIS(portal_url, the_username, the_password)
+    print_envs()
+    gis = connect_to_portal(parameters)
 
     records_per_request = parameters["records_per_request"]
     seconds_between_requests = 0  # parameters["seconds_between_requests"]
