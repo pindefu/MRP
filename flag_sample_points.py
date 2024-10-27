@@ -187,18 +187,144 @@ def alter_tracking(item, tracking_state):
         logger.info("Change tracking result: {}\n\n".format(alter_response))
 
 
-def flag_rounded(taskItem, taskLyr, rule_config):
+integer_field_def = {
+    "type": "esriFieldTypeInteger",
+    "nullable": True,
+    "editable": True,
+    "visible": True,
+    "defaultValue": None,
+}
+rounded_domain_def = {
+    "domain": {
+        "type": "codedValue",
+        "codedValues": [
+            {"name": "No", "code": 0},
+            {"name": "Rounded to Degree", "code": 1},
+            {"name": "Rounded to Minute", "code": 2},
+            {"name": "Rounded to 0.5 Minute", "code": 3},
+        ],
+    }
+}
+
+corners_domain_def = {
+    "domain": {
+        "type": "codedValue",
+        "codedValues": [{"name": "No", "code": 0}, {"name": "Yes", "code": 1}],
+    }
+}
+
+landforms_domain_def = {
+    "domain": {
+        "type": "codedValue",
+        "codedValues": [
+            {"name": "Flat", "code": 1},
+            {"name": "Peak", "code": 2},
+            {"name": "Ridge", "code": 3},
+            {"name": "Shoulder", "code": 4},
+            {"name": "Spur", "code": 5},
+            {"name": "Slope", "code": 6},
+            {"name": "Hollow", "code": 7},
+            {"name": "Footslope", "code": 8},
+            {"name": "Valley", "code": 9},
+            {"name": "Pit", "code": 10},
+        ],
+    }
+}
+
+field_to_calc_x = "Flag_RoundedX"
+field_to_calc_y = "Flag_RoundedY"
+field_to_calc_corner = "Flag_Corners"
+field_to_calc_landforms = "Flag_Landforms"
+
+
+def add_flag_fields(taskItem, taskLyr):
+    global field_to_calc_x, field_to_calc_y, field_to_calc_corner, field_to_calc_landforms
+    logger.info("\n ------- Adding fields to the layer ------- \n")
+    # Add Flag_RoundedX, Flag_RoundedY, Flag_Corners, Flag_Landforms, and Flagged fields to the layer
+    # Check if each of the fields already exist in the layer, if not, add them
+    fields_to_add = []
+    if not any(f["name"] == field_to_calc_x for f in taskLyr.properties.fields):
+        field_to_calc_x_def = {
+            "name": field_to_calc_x,
+            "alias": field_to_calc_x.replace("_", " "),
+        }
+
+        # merge with the integer_field_def and rounded_domain_def, and create a new field definition
+        field_to_calc_x_def = {
+            **field_to_calc_x_def,
+            **integer_field_def,
+            **rounded_domain_def,
+        }
+        field_to_calc_x_def["domain"]["name"] = "{}_Domain".format(field_to_calc_x)
+        fields_to_add.append(field_to_calc_x_def)
+
+    if not any(f["name"] == field_to_calc_y for f in taskLyr.properties.fields):
+        field_to_calc_y_def = {
+            "name": field_to_calc_y,
+            "alias": field_to_calc_y.replace("_", " "),
+        }
+
+        field_to_calc_y_def = {
+            **field_to_calc_y_def,
+            **integer_field_def,
+            **rounded_domain_def,
+        }
+        field_to_calc_y_def["domain"]["name"] = "{}_Domain".format(field_to_calc_y)
+        fields_to_add.append(field_to_calc_y_def)
+
+    if not any(f["name"] == field_to_calc_corner for f in taskLyr.properties.fields):
+        field_to_calc_corner_def = {
+            "name": field_to_calc_corner,
+            "alias": field_to_calc_corner.replace("_", " "),
+        }
+        field_to_calc_corner_def = {
+            **field_to_calc_corner_def,
+            **integer_field_def,
+            **corners_domain_def,
+        }
+        field_to_calc_corner_def["domain"]["name"] = "{}_Domain".format(
+            field_to_calc_corner
+        )
+        fields_to_add.append(field_to_calc_corner_def)
+
+    if not any(f["name"] == field_to_calc_landforms for f in taskLyr.properties.fields):
+        field_to_calc_landforms_def = {
+            "name": field_to_calc_landforms,
+            "alias": field_to_calc_landforms.replace("_", " "),
+        }
+        field_to_calc_landforms_def = {
+            **field_to_calc_landforms_def,
+            **integer_field_def,
+            **landforms_domain_def,
+        }
+        field_to_calc_landforms_def["domain"]["name"] = "{}_Domain".format(
+            field_to_calc_landforms
+        )
+        fields_to_add.append(field_to_calc_landforms_def)
+
+    if len(fields_to_add) > 0:
+        field_names = [f["name"] for f in fields_to_add]
+        logger.info("Fields to add: {}".format(field_names))
+        add_fields_response = taskLyr.manager.add_to_definition(
+            {"fields": fields_to_add}
+        )
+        logger.info("Add Fields Response: {}".format(add_fields_response))
+    else:
+        logger.info("All fields already exist in the layer")
+
+
+def flag_rounded(taskItem, taskLyr, task):
+    global field_to_calc_x, field_to_calc_y, field_to_calc_corner, field_to_calc_landforms
     logger.info("\n ------- Flagging points with lat/long rounded ------- \n")
-    field_to_calc_x = rule_config["field_to_calc_x"]
-    field_to_calc_y = rule_config["field_to_calc_y"]
-    latitide_field = rule_config["latitide_field"]
-    longitude_field = rule_config["longitude_field"]
+    latitide_field = task["latitide_field"]
+    longitude_field = task["longitude_field"]
+    where = task["where"]
 
     oid_field = taskLyr.properties.objectIdField
 
     # Query the layer to get all values of the latitide_field and longitude_field
     query_result = taskLyr.query(
-        where="1=1",
+        where=where,
         out_fields="{},{},{}".format(oid_field, latitide_field, longitude_field),
         return_geometry=False,
         return_all_records=True,
@@ -230,14 +356,24 @@ def flag_rounded(taskItem, taskLyr, rule_config):
     logger.info("\tNumber of flagged latitude: {}".format(num_flagged_y))
     logger.info("\tNumber of flagged points: {}".format(num_flagged))
 
-    save_to_featurelayer(
-        list_to_update,
-        update=taskLyr,
-        track=None,
-        item=taskItem,
-        operation="update",
-        use_global_ids=False,
-    )
+    if num_flagged == 0:
+        calc_field_response = taskLyr.calculate(
+            where="1=1", calc_expression={"field": field_to_calc_y, "sqlExpression": 0}
+        )
+        logger.info("Calculate field response: {}".format(calc_field_response))
+        calc_field_response = taskLyr.calculate(
+            where="1=1", calc_expression={"field": field_to_calc_x, "sqlExpression": 0}
+        )
+        logger.info("Calculate field response: {}".format(calc_field_response))
+    else:
+        save_to_featurelayer(
+            list_to_update,
+            update=taskLyr,
+            track=None,
+            item=taskItem,
+            operation="update",
+            use_global_ids=False,
+        )
 
 
 # check if the latitide_field and longitude_field are rounded to the nearest integer, the nearest minute, or the nearest 30 second
@@ -273,24 +409,26 @@ def check_rounded(v):
 
 @run_update
 def save_to_featurelayer(process_list):
+    global num_failed_records, num_succeeded_records, num_total_records
+    num_total_records = num_succeeded_records = num_failed_records = 0
     logger.info("\n\tSaving to feature layer\n")
     # logger.info("\tFeatures info to update: {}".format(process_list))
     return process_list
 
 
-def flag_cornered(taskItem, taskLyr, rule_config):
+def flag_cornered(taskItem, taskLyr, task):
+    global field_to_calc_x, field_to_calc_y, field_to_calc_corner, field_to_calc_landforms
     logger.info(
         "\n ------- Flagging points snapped to the corners of USGS 3.5' topographic quadrangle maps ------- \n"
     )
-    field_to_calc = rule_config["field_to_calc"]
-    latitide_field = rule_config["latitide_field"]
-    longitude_field = rule_config["longitude_field"]
-
+    latitide_field = task["latitide_field"]
+    longitude_field = task["longitude_field"]
+    where = task["where"]
     oid_field = taskLyr.properties.objectIdField
 
     # Query the layer to get all values of the latitide_field and longitude_field
     query_result = taskLyr.query(
-        where="1=1",
+        where=where,
         out_fields="{},{},{}".format(oid_field, latitide_field, longitude_field),
         return_geometry=False,
         return_all_records=True,
@@ -304,24 +442,31 @@ def flag_cornered(taskItem, taskLyr, rule_config):
         lat = f.attributes[latitide_field]
         lon = f.attributes[longitude_field]
 
-        new_attributes[field_to_calc] = (
+        new_attributes[field_to_calc_corner] = (
             1 if (check_cornered(lat, False) == 1 and check_cornered(lon, True)) else 0
         )
-        if new_attributes[field_to_calc] > 0:
+        if new_attributes[field_to_calc_corner] > 0:
             num_flagged += 1
 
         list_to_update.append({"attributes": new_attributes})
 
-    logger.info("\tNumber of flagged: {}".format(num_flagged))
+    logger.info("\tNumber of flagged points: {}".format(num_flagged))
 
-    save_to_featurelayer(
-        list_to_update,
-        update=taskLyr,
-        track=None,
-        item=taskItem,
-        operation="update",
-        use_global_ids=False,
-    )
+    if num_flagged == 0:
+        calc_field_response = taskLyr.calculate(
+            where="1=1",
+            calc_expression={"field": field_to_calc_corner, "sqlExpression": 0},
+        )
+        logger.info("Calculate field response: {}".format(calc_field_response))
+    else:
+        save_to_featurelayer(
+            list_to_update,
+            update=taskLyr,
+            track=None,
+            item=taskItem,
+            operation="update",
+            use_global_ids=False,
+        )
 
 
 def check_cornered(v, isLongitude):
@@ -382,7 +527,6 @@ if __name__ == "__main__":
     gis = connect_to_portal(parameters)
 
     try:
-        rules_to_run = parameters["rules_to_run"]
 
         tasks = parameters["tasks"]
         for task in tasks:
@@ -400,14 +544,18 @@ if __name__ == "__main__":
             logger.info("Task Item Title: {}".format(taskItem.title))
             taskLyr = taskItem.layers[lyrId]
 
+            # Add the fields to the layer
+            add_flag_fields(taskItem, taskLyr)
+            rules_to_run = task["rules_to_run"]
+
             if not rules_to_run["flag_rounded"]["skip"]:
-                flag_rounded(taskItem, taskLyr, rules_to_run["flag_rounded"])
+                flag_rounded(taskItem, taskLyr, task)
 
             if not rules_to_run["flag_corners"]["skip"]:
-                flag_cornered(taskItem, taskLyr, rules_to_run["flag_corners"])
+                flag_cornered(taskItem, taskLyr, task)
 
-            # if not rules_to_run["flag_ridges"]["skip"]:
-            #    flag_ridge(taskItem, taskLyr, rules_to_run["flag_ridge"])
+            # if not rules_to_run["flag_landforms"]["skip"]:
+            #    flag_landforms(taskItem, taskLyr, rules_to_run["flag_ridge"])
 
     except Exception:
         logger.info(traceback.format_exc())
