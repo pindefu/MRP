@@ -11,6 +11,7 @@ import json
 import os
 import math
 import arcpy
+import pandas as pd
 from arcgis.geometry import Polygon, Geometry, areas_and_lengths
 from arcgis.geometry import Point, buffer, LengthUnits, AreaUnits
 
@@ -308,9 +309,9 @@ def add_flag_fields(taskItem, taskLyr):
         add_fields_response = taskLyr.manager.add_to_definition(
             {"fields": fields_to_add}
         )
-        logger.info("Add Fields Response: {}".format(add_fields_response))
+        logger.info("\tAdd Fields Response: {}".format(add_fields_response))
     else:
-        logger.info("All fields already exist in the layer")
+        logger.info("\tAll fields already exist in the layer")
 
 
 def flag_rounded(taskItem, taskLyr, task):
@@ -469,6 +470,88 @@ def flag_cornered(taskItem, taskLyr, task):
         )
 
 
+def flag_landforms(taskItem, taskLyr, task):
+    global field_to_calc_x, field_to_calc_y, field_to_calc_corner, field_to_calc_landforms
+    logger.info("\n ------- Flagging points with landforms ------- \n")
+    field_to_calc_landforms = "Flag_Landforms"
+    where = task["where"]
+    oid_field = taskLyr.properties.objectIdField
+
+    # read the taskLayer into a spatial dataframe
+    sdf = taskLyr.query(where=where, out_fields=[oid_field]).sdf
+
+    # check if the in memory points feature already exists, it it does, delete it
+    if arcpy.Exists("in_memory/points"):
+        arcpy.Delete_management("in_memory/points")
+
+    # conver the sdf to a feature class in memory
+    sdf.spatial.to_featureclass(location="in_memory/points")
+
+    in_rasters = task["rules_to_run"]["flag_landforms"]["in_rasters"]
+    # loop through the in_rasters, and build the string to pass to the ExtractMultiValuesToPoints tool.
+    # The string includes the in rasters and an out field name for each raster
+    raster_string = ""
+    for i, raster in enumerate(in_rasters):
+        if i > 0:
+            raster_string += ";"
+        raster_string += "{} {} ".format(raster, "tmp_landform_{}".format(i + 1))
+
+    arcpy.sa.ExtractMultiValuesToPoints(
+        in_point_features="in_memory/points",
+        in_rasters=raster_string,
+        bilinear_interpolate_values="NONE",
+    )
+
+    # get the object id field name from the in_memory/points feature class
+    oid_field_fc = arcpy.ListFields("in_memory/points", "*", "OID")[0].name
+
+    # convert the points feature class back to a spatial dataframe
+    sdf_fc = pd.DataFrame.spatial.from_featureclass("in_memory/points")
+    # print(sdf_fc)
+
+    # Loop through rows in the sdf.
+    # For each row, set field_to_calc_landforms the value of any of the out fields that are not null
+    list_to_update = []
+    num_flagged = 0
+    for index, row in sdf_fc.iterrows():
+        # get the oid_field value from the row
+        oid_value = row[oid_field_fc]
+        new_attributes = {oid_field: oid_value}
+        landform = 0
+        for i, raster in enumerate(in_rasters):
+            v = row["tmp_landform_{}".format(i + 1)]
+            if pd.notna(v) and v is not None:
+                landform = v
+                break
+
+        new_attributes[field_to_calc_landforms] = landform
+        if new_attributes[field_to_calc_landforms] > 0:
+            num_flagged += 1
+
+        list_to_update.append({"attributes": new_attributes})
+
+    if arcpy.Exists("in_memory/points"):
+        arcpy.Delete_management("in_memory/points")
+
+    logger.info("\tNumber of flagged points: {}".format(num_flagged))
+
+    if num_flagged == 0:
+        calc_field_response = taskLyr.calculate(
+            where="1=1",
+            calc_expression={"field": field_to_calc_landforms, "sqlExpression": 0},
+        )
+        logger.info("Calculate field response: {}".format(calc_field_response))
+    else:
+        save_to_featurelayer(
+            list_to_update,
+            update=taskLyr,
+            track=None,
+            item=taskItem,
+            operation="update",
+            use_global_ids=False,
+        )
+
+
 def check_cornered(v, isLongitude):
     orig_long_in_minutes = -6693.75
     orig_lat_in_minutes = 2681.25
@@ -554,8 +637,8 @@ if __name__ == "__main__":
             if not rules_to_run["flag_corners"]["skip"]:
                 flag_cornered(taskItem, taskLyr, task)
 
-            # if not rules_to_run["flag_landforms"]["skip"]:
-            #    flag_landforms(taskItem, taskLyr, rules_to_run["flag_ridge"])
+            if not rules_to_run["flag_landforms"]["skip"]:
+                flag_landforms(taskItem, taskLyr, task)
 
     except Exception:
         logger.info(traceback.format_exc())

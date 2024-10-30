@@ -3,23 +3,26 @@
 
   "tasks": [
     {
-      "name": "Sample Points",
+      "name": "Geochemical Sample Points",
       "skip": false,
-      "itemId": "c60b09a709884a52a5dac5fd27b056b5",
+      "itemId": "5c78fa2a18dd4f488b2bbbdbed0a86b7",
       "lyrId": 0,
-      "latitide_field": "Lat_NAD27",
-      "longitude_field": "Long_NAD27",
-      "where": "Lat_NAD27 IS NOT NULL and Long_NAD27 IS NOT NULL",
+      "latitide_field": "LATITUDE",
+      "longitude_field": "LONGITUDE",
+      "where": "LATITUDE IS NOT NULL and LONGITUDE IS NOT NULL",
       "rules_to_run": {
         "flag_rounded": {
           "skip": true
         },
         "flag_corners": {
-          "skip": false
+          "skip": true
         },
         "flag_landforms": {
-          "skip": true,
-          "comment": "Not automated. Need to be done manually"
+          "skip": false,
+          "in_rasters": [
+            "C:\\Dev\\USGS_MRP\\data\\geochem_locations.gdb\\Geomorp_Terr2",
+            "C:\\Dev\\USGS_MRP\\data\\geochem_locations.gdb\\Geomorp_Terr1"
+          ]
         }
       }
     }
