@@ -1,46 +1,35 @@
 {
-
   "log_folder": "C:\\dev\\USGS_MRP\\logs",
 
   "rules_to_run": {
-    "isMultipart": false,
-    "isTooLargeOrSmall": true,
-    "isEnlongated": true
+    "flag_size": {
+      "skip": true,
+      "cutoff_large": 0.975,
+      "cutoff_small": 0.025
+    },
+    "flag_elongated": {
+      "skip": false,
+      "cutoff_large": 0.995,
+      "cutoff_small": 0.005
+    },
+    "flag_multiparts": {
+      "skip": true
+    }
   },
 
   "tasks": [
     {
       "name": "Watersheds",
       "skip": false,
-      "itemId": "4f9e3847eeb6445191acfe58e5a01ddc",
-      "isLayer": true,
-      "LyrTblid": 0,
-      "areaField": "AnalysisArea"
+      "itemId": "c60b09a709884a52a5dac5fd27b056b5",
+      "lyrId": 0
     }
   ],
 
- "the_portal": {
-   "url1": "https://sandbox.maps.arcgis.com/",
-   "url": "https://usgs.maps.arcgis.com/",
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-   "user": "pfu_USGS",
-   "pass": "Kevk2o2!8**",
-
-   "user1": "pinde_env",
-   "pass1": "dearKevk8*"
- }
+  "the_portal": {
+    "use_ArcGIS_Pro": true,
+    "url": "https://usgs.maps.arcgis.com/",
+    "user": "pfu_USGS",
+    "pass": "xxxxxx"
+  }
 }

@@ -16,7 +16,7 @@ from arcgis.geometry import Polygon, Geometry, areas_and_lengths
 from arcgis.geometry import Point, buffer, LengthUnits, AreaUnits
 
 logger = None
-batch_size = 2500
+batch_size = 1000
 num_failed_records = 0
 num_succeeded_records = 0
 
@@ -83,15 +83,6 @@ def run_update(the_func):
             ]
             # logger.info("\nProcessing {} Batch(es)\n".format(len(update_sets)))
 
-            if operation in ["update", "add"] and kwargs.get("track") is not None:
-                try:
-                    alter_tracking(kwargs.get("track"), "Disable")
-                except RuntimeError:
-                    logger.info(
-                        "Alter Tracking - RunTime Error. Passing Until Testing Proves Otherwise . . .\n\n"
-                    )
-                    pass
-
             # Push Edit Batches
             try:
                 for update_set in update_sets:
@@ -149,43 +140,10 @@ def run_update(the_func):
                     )
                 )
 
-                if operation in ["add", "update"]:
-                    try:
-                        alter_tracking(kwargs.get("track"), "Enable")
-                    except RuntimeError:
-                        logger.info(
-                            "Alter Tracking - RunTime Error. Passing Until Testing Proves Otherwise . . ."
-                        )
-                        pass
-
         else:
             logger.info("Returned List Was Empty. No Edits Performed.")
 
     return wrapper
-
-
-def alter_tracking(item, tracking_state):
-    if item == None:
-        return
-
-    logger.info("\n\n{} Editor tracking on {}\n".format(tracking_state, item.title))
-    flc = FeatureLayerCollection.fromitem(item)
-    cap = flc.properties["editorTrackingInfo"]
-    # logger.info("\n ... existng editor tracking property {}\n".format(cap))
-
-    if tracking_state == "Disable":
-        cap["enableEditorTracking"] = False
-
-    else:
-        cap["enableEditorTracking"] = True
-
-    alter_response = ""
-    try:
-        alter_response = flc.manager.update_definition({"editorTrackingInfo": cap})
-    except Exception:
-        logger.info("Exception {}".format(traceback.format_exc()))
-    finally:
-        logger.info("Change tracking result: {}\n\n".format(alter_response))
 
 
 integer_field_def = {
@@ -199,6 +157,7 @@ rounded_domain_def = {
     "domain": {
         "type": "codedValue",
         "codedValues": [
+            {"name": "Missing Value", "code": -1},
             {"name": "No", "code": 0},
             {"name": "Rounded to Degree", "code": 1},
             {"name": "Rounded to Minute", "code": 2},
@@ -210,7 +169,11 @@ rounded_domain_def = {
 corners_domain_def = {
     "domain": {
         "type": "codedValue",
-        "codedValues": [{"name": "No", "code": 0}, {"name": "Yes", "code": 1}],
+        "codedValues": [
+            {"name": "Missing Latidue or Longitude", "code": -1},
+            {"name": "No", "code": 0},
+            {"name": "Yes", "code": 1},
+        ],
     }
 }
 
@@ -319,7 +282,12 @@ def flag_rounded(taskItem, taskLyr, task):
     logger.info("\n ------- Flagging points with lat/long rounded ------- \n")
     latitide_field = task["latitide_field"]
     longitude_field = task["longitude_field"]
-    where = task["where"]
+    where = None
+    if "where" in task:
+        where = task["where"]
+
+    if where is None or where == "":
+        where = "1=1"
 
     oid_field = taskLyr.properties.objectIdField
 
@@ -340,12 +308,20 @@ def flag_rounded(taskItem, taskLyr, task):
         new_attributes = {oid_field: f.attributes[oid_field]}
         lat = f.attributes[latitide_field]
         lon = f.attributes[longitude_field]
-        new_attributes[field_to_calc_y] = check_rounded(lat)
-        new_attributes[field_to_calc_x] = check_rounded(lon)
-        if new_attributes[field_to_calc_y] > 0:
+        if lat is None:
+            new_attributes[field_to_calc_y] = -1
+        else:
+            new_attributes[field_to_calc_y] = check_rounded(lat)
+
+        if lon is None:
+            new_attributes[field_to_calc_x] = -1
+        else:
+            new_attributes[field_to_calc_x] = check_rounded(lon)
+
+        if new_attributes[field_to_calc_y] != 0:
             num_flagged_y += 1
 
-        if new_attributes[field_to_calc_x] > 0:
+        if new_attributes[field_to_calc_x] != 0:
             num_flagged_x += 1
 
         if new_attributes[field_to_calc_x] > 0 or new_attributes[field_to_calc_y] > 0:
@@ -359,11 +335,11 @@ def flag_rounded(taskItem, taskLyr, task):
 
     if num_flagged == 0:
         calc_field_response = taskLyr.calculate(
-            where="1=1", calc_expression={"field": field_to_calc_y, "sqlExpression": 0}
-        )
-        logger.info("Calculate field response: {}".format(calc_field_response))
-        calc_field_response = taskLyr.calculate(
-            where="1=1", calc_expression={"field": field_to_calc_x, "sqlExpression": 0}
+            where=where,
+            calc_expression=[
+                {"field": field_to_calc_x, "sqlExpression": 0},
+                {"field": field_to_calc_y, "sqlExpression": 0},
+            ],
         )
         logger.info("Calculate field response: {}".format(calc_field_response))
     else:
@@ -424,7 +400,14 @@ def flag_cornered(taskItem, taskLyr, task):
     )
     latitide_field = task["latitide_field"]
     longitude_field = task["longitude_field"]
-    where = task["where"]
+
+    where = None
+    if "where" in task:
+        where = task["where"]
+
+    if where is None or where == "":
+        where = "1=1"
+
     oid_field = taskLyr.properties.objectIdField
 
     # Query the layer to get all values of the latitide_field and longitude_field
@@ -443,10 +426,16 @@ def flag_cornered(taskItem, taskLyr, task):
         lat = f.attributes[latitide_field]
         lon = f.attributes[longitude_field]
 
-        new_attributes[field_to_calc_corner] = (
-            1 if (check_cornered(lat, False) == 1 and check_cornered(lon, True)) else 0
-        )
-        if new_attributes[field_to_calc_corner] > 0:
+        if lat is None or lon is None:
+            new_attributes[field_to_calc_corner] = -1
+        else:
+            new_attributes[field_to_calc_corner] = (
+                1
+                if (check_cornered(lat, False) == 1 and check_cornered(lon, True))
+                else 0
+            )
+
+        if new_attributes[field_to_calc_corner] != 0:
             num_flagged += 1
 
         list_to_update.append({"attributes": new_attributes})
@@ -455,7 +444,7 @@ def flag_cornered(taskItem, taskLyr, task):
 
     if num_flagged == 0:
         calc_field_response = taskLyr.calculate(
-            where="1=1",
+            where=where,
             calc_expression={"field": field_to_calc_corner, "sqlExpression": 0},
         )
         logger.info("Calculate field response: {}".format(calc_field_response))
@@ -537,7 +526,7 @@ def flag_landforms(taskItem, taskLyr, task):
 
     if num_flagged == 0:
         calc_field_response = taskLyr.calculate(
-            where="1=1",
+            where=where,
             calc_expression={"field": field_to_calc_landforms, "sqlExpression": 0},
         )
         logger.info("Calculate field response: {}".format(calc_field_response))
