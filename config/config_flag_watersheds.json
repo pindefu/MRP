@@ -8,12 +8,13 @@
       "cutoff_small": 0.025
     },
     "flag_elongated": {
-      "skip": false,
+      "skip": true,
       "cutoff_large": 0.995,
       "cutoff_small": 0.005
     },
     "flag_multiparts": {
-      "skip": true
+      "skip": false,
+      "resolution_meters": 90
     }
   },
 
@@ -21,8 +22,10 @@
     {
       "name": "Watersheds",
       "skip": false,
-      "itemId": "c60b09a709884a52a5dac5fd27b056b5",
-      "lyrId": 0
+      "itemId": "1512dd91ff5c4a04b89eee2ec4bf4176",
+      "itemId1": "c60b09a709884a52a5dac5fd27b056b5",
+      "lyrId": 0,
+      "where": "OBJECTID < 1000"
     }
   ],
 

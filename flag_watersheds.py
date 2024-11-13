@@ -18,6 +18,7 @@ logger = None
 batch_size = 2500
 num_failed_records = 0
 num_succeeded_records = 0
+internal_object_id_fld = "internal_objectid"
 
 integer_field_def = {
     "type": "esriFieldTypeInteger",
@@ -250,84 +251,156 @@ def run_update(the_func):
     return wrapper
 
 
-def flag_size(taskItem, taskLyr, rule_config):
+def flag_size(task, taskItem, taskLyr, rule_config):
     logger.info("\n ------- Flagging by size ------- \n")
-    # Query the layer to get all values of the area_field.
+
     cutoff_large = rule_config["cutoff_large"]
     cutoff_small = rule_config["cutoff_small"]
     field_to_calc = field_to_calc_size
 
-    query_result = taskLyr.query(
-        where="1=1",
-        out_fields="{}".format(fld_area),
-        return_geometry=False,
-        return_all_records=True,
-        order_by_fields="{} ASC".format(fld_area),
+    sWhere = task.get("where", "1=1")
+    fld_objectId, watershed_fc = read_featureLayer_to_featureClass(taskLyr, sWhere)
+
+    if watershed_fc is None:
+        return
+
+    # use arcpy to calculate the geodesic areas
+    logger.info("\tCalculating geodesic area for each feature")
+    arcpy.management.CalculateGeometryAttributes(
+        in_features=watershed_fc,
+        geometry_property=[
+            ["area_geodesic_sqkm", "AREA_GEODESIC"],
+        ],
+        area_unit="SQUARE_KILOMETERS",
     )
 
-    # extract the area_field values from the query result, logaritmized the values, and store them in a list
-
-    sorted_area_values = []
-    for f in query_result.features:
-        sorted_area_values.append(f.attributes[fld_area])
-
-    # get the cutoff values
-    cutoff_large_value = sorted_area_values[int(len(sorted_area_values) * cutoff_large)]
-    cutoff_small_value = sorted_area_values[int(len(sorted_area_values) * cutoff_small)]
-
-    logger.info("Cutoff Large Value: {}".format(cutoff_large_value))
-    logger.info("Cutoff Small Value: {}".format(cutoff_small_value))
-
-    # write an SQL expression to update the field. If the area is larger than the cutoff_large_value, set the field to 2. If the area is smaller than the cutoff_small_value, set the field to 1. Otherwise, set the field to 0
-
-    calc_sql_expresison = (
-        "CASE WHEN {} > {} THEN 2 WHEN {} < {} THEN 1 ELSE 0 END".format(
-            fld_area, cutoff_large_value, fld_area, cutoff_small_value
-        )
+    cutoff_large_value, cutoff_small_value = calc_cutoff_values(
+        watershed_fc, cutoff_large, cutoff_small, "area_geodesic_sqkm"
     )
-    logger.info(
-        "field: {} = Calc Expression: {}".format(field_to_calc, calc_sql_expresison)
+
+    calc_expression = "2 if !area_geodesic_sqkm! > {} else 1 if !area_geodesic_sqkm! < {} else 0".format(
+        cutoff_large_value, cutoff_small_value
     )
-    calc_field_response = taskLyr.calculate(
-        where="1=1",
-        calc_expression={"field": field_to_calc, "sqlExpression": calc_sql_expresison},
+
+    list_to_update = calc_flag_values(
+        watershed_fc, fld_objectId, field_to_calc, calc_expression
     )
-    logger.info("Calc Field Response: {}".format(calc_field_response))
+
+    save_to_featurelayer(
+        list_to_update,
+        sWhere,
+        field_to_calc,
+        update=taskLyr,
+        track=None,
+        item=taskItem,
+        operation="update",
+        use_global_ids=False,
+    )
 
 
-def flag_elongated(taskItem, taskLyr, rule_config):
-    logger.info("\n ------- Flagging enlongated polygons ------- \n")
-
-    cutoff_large = rule_config["cutoff_large"]
-    cutoff_small = rule_config["cutoff_small"]
-    field_to_calc = field_to_calc_shape
-    # Query the layer to get globalid and the AreaSqKm fields, return the geometries, and convert to spatial dataframe
-    logger.info("Querying the layer to get the geometries")
+def read_featureLayer_to_featureClass(taskLyr, sWhere, outFields=[]):
+    logger.info("\tRead feature Layer to feature class")
     fld_objectId = taskLyr.properties.objectIdField
-    sWhere = "1=1"  # "{} > 81100".format(fld_objectId)
+    outFields.append(fld_objectId)
     watershed_sdf = taskLyr.query(
         where=sWhere,
-        out_fields=[fld_objectId],
+        out_fields=outFields,
         return_geometry=True,
         return_all_records=True,
     ).sdf
 
     if watershed_sdf.empty:
         logger.info("\tNo features found in the layer")
-        return
+        return None, None
     else:
         logger.info("\tNumber of features found: {}".format(len(watershed_sdf)))
+        # add a new column to store the fld_objectId values
+        watershed_sdf[internal_object_id_fld] = watershed_sdf[fld_objectId]
 
-    # Save the spatial dataframe to a feature class in the in_memory workspace
-    watershed_fc = "in_memory/watershed_fc"
-    # delete the feature class if it already exists
-    if arcpy.Exists(watershed_fc):
-        arcpy.management.Delete(watershed_fc)
+        # Save the spatial dataframe to a feature class in the in_memory workspace
+        watershed_fc = "in_memory/watershed_fc"
+        # delete the feature class if it already exists
+        if arcpy.Exists(watershed_fc):
+            arcpy.management.Delete(watershed_fc)
 
-    watershed_sdf.spatial.to_featureclass(location=watershed_fc)
+        watershed_sdf.spatial.to_featureclass(location=watershed_fc)
+        return fld_objectId, watershed_fc
+
+
+def calc_cutoff_values(fc, cutoff_large, cutoff_small, field_of_values):
+    logger.info("\tCalculating cutoff values")
+    # get the list of values, sort them, and get the cutoff value by percentiles
+    list_values = [row[0] for row in arcpy.da.SearchCursor(fc, [field_of_values])]
+    list_values.sort()
+    num_values = len(list_values)
+    # get the cutoff values
+    cutoff_large_value = list_values[int(num_values * cutoff_large)]
+    cutoff_small_value = list_values[int(num_values * cutoff_small)]
+
+    logger.info("\t  Cutoff Upper Value: {}".format(cutoff_large_value))
+    logger.info("\t  Cutoff Lower Value: {}".format(cutoff_small_value))
+
+    return cutoff_large_value, cutoff_small_value
+
+
+def calc_flag_values(
+    fc,
+    fld_objectId,
+    field_to_calc,
+    calc_expression,
+    expression_type="PYTHON3",
+):
+
+    # Use arcpy calculate field to calculate the flag value based on the circularity ratio
+    logger.info("\tCalculating flag values")
+    arcpy.management.CalculateField(
+        in_table=fc,
+        field=field_to_calc,
+        expression=calc_expression,
+        expression_type=expression_type,
+        field_type="SHORT",
+    )
+
+    # Read the features with flag value <> 0 to a dataframe, only keep the objectid and the flag field,
+    out_sdf = pd.DataFrame.spatial.from_featureclass(
+        fc,
+        fields=[fld_objectId, field_to_calc],
+        where_clause="{} <> 0".format(field_to_calc),
+    )
+
+    # Delete the feature class if it exists
+    if arcpy.Exists(fc):
+        arcpy.management.Delete(fc)
+
+    # convert the spatial dataframe to a feature set
+    fs = out_sdf.spatial.to_featureset()
+    list_to_update = []
+    # for each feature in the feature set, create a dictionary with the object and the flag value
+    for f in fs.features:
+        new_attributes = {fld_objectId: f.attributes[fld_objectId]}
+        new_attributes[field_to_calc] = f.attributes[field_to_calc]
+        list_to_update.append({"attributes": new_attributes})
+
+    num_flagged = len(list_to_update)
+    logger.info("\tNumber of flagged records: {}".format(num_flagged))
+
+    return list_to_update
+
+
+def flag_elongated(task, taskItem, taskLyr, rule_config):
+    logger.info("\n ------- Flagging enlongated polygons ------- \n")
+
+    cutoff_large = rule_config["cutoff_large"]
+    cutoff_small = rule_config["cutoff_small"]
+    field_to_calc = field_to_calc_shape
+    sWhere = task.get("where", "1=1")
+    fld_objectId, watershed_fc = read_featureLayer_to_featureClass(taskLyr, sWhere)
+
+    if watershed_fc is None:
+        return
 
     # use arcpy to calculate the length and area of the geometry in geodesic units
-    logger.info("\tCalculating geodesic area and perimeter")
+    logger.info("\tCalculating geodesic area and perimeter for each feature")
     arcpy.management.CalculateGeometryAttributes(
         in_features=watershed_fc,
         geometry_property=[
@@ -339,7 +412,7 @@ def flag_elongated(taskItem, taskLyr, rule_config):
     )
 
     # Use arcpy calculate field to Calculate the circularity ratio, which is the area devided by the perimeter squared
-    logger.info("\tCalculating circularity ratio")
+    logger.info("\tCalculating circularity ratio for each feature")
     arcpy.management.CalculateField(
         in_table=watershed_fc,
         field="circularity_ratio",
@@ -348,51 +421,22 @@ def flag_elongated(taskItem, taskLyr, rule_config):
         field_type="DOUBLE",
     )
 
-    logger.info("\tCalculating cutoff values")
-    # get the list of circularity ratios, sort them, and get the cutoff value by percentiles
-    list_circularity_ratios = [
-        row[0] for row in arcpy.da.SearchCursor(watershed_fc, ["circularity_ratio"])
-    ]
-    list_circularity_ratios.sort()
-    num_values = len(list_circularity_ratios)
-    # get the cutoff values
-    cutoff_large_value = list_circularity_ratios[int(num_values * cutoff_large)]
-    cutoff_small_value = list_circularity_ratios[int(num_values * cutoff_small)]
-
-    logger.info("\tCutoff Upper Value: {}".format(cutoff_large_value))
-    logger.info("\tCutoff Lower Value: {}".format(cutoff_small_value))
-
-    # Use arcpy calculate field to calculate the flag value based on the circularity ratio
-    logger.info("\tCalculating flag values")
-    arcpy.management.CalculateField(
-        in_table=watershed_fc,
-        field=field_to_calc,
-        expression="1 if !circularity_ratio! > {} else 2 if !circularity_ratio! < {} else 0".format(
-            cutoff_large_value, cutoff_small_value
-        ),
-        expression_type="PYTHON3",
-        field_type="SHORT",
+    cutoff_large_value, cutoff_small_value = calc_cutoff_values(
+        watershed_fc, cutoff_large, cutoff_small, "circularity_ratio"
     )
 
-    # read the feature class to a dataframe, only keep the globalid and the flag field, no geometry
-    watershed_sdf = pd.DataFrame.spatial.from_table(
-        watershed_fc, fields=[fld_objectId, field_to_calc]
+    calc_expression = "1 if !circularity_ratio! > {} else 2 if !circularity_ratio! < {} else 0".format(
+        cutoff_large_value, cutoff_small_value
     )
-    # Delete the feature class if it exists
-    if arcpy.Exists(watershed_fc):
-        arcpy.management.Delete(watershed_fc)
 
-    # convert the spatial dataframe to a feature set
-    watershed_fs = watershed_sdf.spatial.to_featureset()
-    list_to_update = []
-    # for each feature in the feature set, create a dictionary with the object and the flag value
-    for f in watershed_fs.features:
-        new_attributes = {fld_objectId: f.attributes[fld_objectId]}
-        new_attributes[field_to_calc] = f.attributes[field_to_calc]
-        list_to_update.append({"attributes": new_attributes})
+    list_to_update = calc_flag_values(
+        watershed_fc, fld_objectId, field_to_calc, calc_expression
+    )
 
     save_to_featurelayer(
         list_to_update,
+        sWhere,
+        field_to_calc,
         update=taskLyr,
         track=None,
         item=taskItem,
@@ -402,101 +446,94 @@ def flag_elongated(taskItem, taskLyr, rule_config):
 
 
 @run_update
-def save_to_featurelayer(process_list):
-    # logger.info("\tFeatures info to update: {}".format(process_list))
-    logger.info("\t ------- Saving to feature layer ------- \n")
-    return process_list
+def save_to_featurelayer(list_to_update, sWhere, field_to_calc):
+
+    # Set the default values to 0
+    logger.info("\tSetting the defaut values to 0")
+    calc_field_response = taskLyr.calculate(
+        where=sWhere,
+        calc_expression=[{"field": field_to_calc, "sqlExpression": 0}],
+    )
+    logger.info("\t  Result: {}".format(calc_field_response))
+
+    logger.info("\tUpdating the flagged records")
+    return list_to_update
 
 
-def flag_multiparts(taskItem, taskLyr, rule_config):
+def flag_multiparts(task, taskItem, taskLyr, rule_config):
     logger.info("\n ------- Flagging multipart polygons ------- \n")
 
-    # Query the layer to get globalid and the AreaSqKm fields, return the geometries, and convert to spatial dataframe
-    logger.info("Querying the layer to get the geometries")
-    fld_objectId = taskLyr.properties.objectIdField
-    sWhere = "1=1"  # "{} > 81100".format(fld_objectId)
-    watershed_sdf = taskLyr.query(
-        where=sWhere,
-        out_fields=[fld_objectId],
-        return_geometry=True,
-        return_all_records=True,
-    ).sdf
+    field_to_calc = field_to_calc_multipart
+    # field_resolution = rule_config["resolution_field"]
+    resolution_meters = rule_config["resolution_meters"]
+    sWhere = task.get("where", "1=1")
 
-    if watershed_sdf.empty:
-        logger.info("\tNo features found in the layer")
+    logger.info("\tQuerying the layer to get the geometries")
+    fld_objectId, watershed_fc = read_featureLayer_to_featureClass(taskLyr, sWhere)
+
+    if watershed_fc is None:
         return
-    else:
-        logger.info("\tNumber of features found: {}".format(len(watershed_sdf)))
 
-    # Save the spatial dataframe to a feature class in the in_memory workspace
-    watershed_fc = "in_memory/watershed_fc"
-    # delete the feature class if it already exists
-    if arcpy.Exists(watershed_fc):
-        arcpy.management.Delete(watershed_fc)
-
-    watershed_sdf.spatial.to_featureclass(location=watershed_fc)
+    list_to_update = []
 
     # use arcpy to calculate the number of parts in the geometry using Arcade
     logger.info("\tCalculating number of parts")
     arcpy.management.CalculateField(
         in_table=watershed_fc,
         field="num_parts",
-        expression="Count($feature.rings)",
+        expression="Count(Geometry($feature).rings)",
         expression_type="ARCADE",
         field_type="SHORT",
     )
 
     # Query the feature class where num_parts > 1 to a new feature class in the in_memory workspace
     logger.info("\tQuerying multipart polygons")
-    sWhere = "num_parts > 1"
-    query_result = arcpy.management.MakeFeatureLayer(
-        in_features=watershed_fc,
-        out_layer="in_memory/multipart_fc",
-        where_clause=sWhere,
-    )
+    sWhere_mpart = "num_parts > 1"
+    multipart_fc = "in_memory/multipart_fc"
+    if arcpy.Exists(multipart_fc):
+        arcpy.management.Delete(multipart_fc)
 
-            # use arcpy to buffer the geometry by the half of the DEM resolution with the dissolve option
-            # check the resulting geometry to see if it is multipart
-            # if the number of parts is larger than 1, set the Flag_Multipart field to 1, otherwise set the Flag_Multipart field to 0
-            dataResolution = f.attributes["DataResolution"]
-            buffer_distance = float(dataResolution) / 2
-            shp = Geometry(f.geometry).as_arcpy
-            logger.info(
-                "\nBuffering & dissolving object ID: {} with {} rings".format(
-                    f.attributes[fld_objectId], num_parts
-                )
-            )
-            output_result = arcpy.analysis.Buffer(
-                in_features=shp,
-                out_feature_class="in_memory/buffered_geom",
-                buffer_distance_or_field=" {} Meters".format(buffer_distance),
-                dissolve_option="ALL",
-            )
-            buffered_fc = output_result.getOutput(0)
-            # use cursor to get the first feature
-            with arcpy.da.SearchCursor(buffered_fc, ["SHAPE@"]) as cursor:
-                for row in cursor:
-                    buffered_geom = row[0]
-                    if buffered_geom.isMultipart:
-                        new_attributes["Flag_Multipart"] = 1
-                        iCount_multipart += 1
-                        logger.info(
-                            "{} Multipart found. Object ID {}".format(
-                                iCount_multipart, f.attributes[fld_objectId]
-                            )
-                        )
-                    else:
-                        new_attributes["Flag_Multipart"] = 0
+    arcpy.analysis.Select(watershed_fc, multipart_fc, sWhere_mpart)
 
-            # delete the cursor
-            del cursor
-            # delete the buffered feature class
+    # Count multipart polygons
+    result = arcpy.GetCount_management(multipart_fc)
+    count = int(result.getOutput(0))
+    if count == 0:
+        logger.info("\tNo multipart polygons found")
+    else:
+        logger.info("\tNumber of multipart polygons found: {}".format(count))
+        logger.info(
+            "\tBuffering them the half of the resolution to see if they are still multipart"
+        )
+
+        # arcpy.management.CalculateField(
+        #     in_table=multipart_fc,
+        #     field=field_resolution,
+        #     expression="{} + ' Meters'".format(field_resolution),
+        #     expression_type="PYTHON3",
+        # )
+
+        buffered_fc = "in_memory/buffered_fc"
+        if arcpy.Exists(buffered_fc):
             arcpy.management.Delete(buffered_fc)
-        list_to_update.append({"attributes": new_attributes})
 
-    logger.info("Total {} multipart polygons found".format(iCount_multipart))
+        arcpy.analysis.Buffer(
+            in_features=multipart_fc,
+            out_feature_class=buffered_fc,
+            buffer_distance_or_field="{} Meters".format(resolution_meters),
+            dissolve_option="NONE",
+            method="PLANAR",
+        )
+
+        calc_expression = "IIF(Count(Geometry($feature).rings) > 1, 1, 0)"
+        list_to_update = calc_flag_values(
+            buffered_fc, fld_objectId, field_to_calc, calc_expression, "ARCADE"
+        )
+
     save_to_featurelayer(
         list_to_update,
+        sWhere,
+        field_to_calc,
         update=taskLyr,
         track=None,
         item=taskItem,
@@ -567,13 +604,15 @@ if __name__ == "__main__":
             add_flag_fields(taskItem, taskLyr)
 
             if not rules_to_run["flag_size"]["skip"]:
-                flag_size(taskItem, taskLyr, rules_to_run["flag_size"])
+                flag_size(task, taskItem, taskLyr, rules_to_run["flag_size"])
 
             if not rules_to_run["flag_elongated"]["skip"]:
-                flag_elongated(taskItem, taskLyr, rules_to_run["flag_elongated"])
+                flag_elongated(task, taskItem, taskLyr, rules_to_run["flag_elongated"])
 
             if not rules_to_run["flag_multiparts"]["skip"]:
-                flag_multiparts(taskItem, taskLyr, rules_to_run["flag_multiparts"])
+                flag_multiparts(
+                    task, taskItem, taskLyr, rules_to_run["flag_multiparts"]
+                )
 
     except Exception:
         logger.info(traceback.format_exc())
