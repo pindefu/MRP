@@ -6,19 +6,15 @@ import logging
 import time
 import json
 import os
-import math
 import pandas as pd
 import arcpy
 import sys
 import arcgis
-from arcgis.geometry import Polygon, Geometry, areas_and_lengths
-from arcgis.geometry import Point, buffer, LengthUnits, AreaUnits
 
 logger = None
 batch_size = 2500
 num_failed_records = 0
 num_succeeded_records = 0
-internal_object_id_fld = "internal_objectid"
 
 integer_field_def = {
     "type": "esriFieldTypeInteger",
@@ -117,7 +113,7 @@ def add_flag_fields(taskItem, taskLyr):
 
     if len(fields_to_add) > 0:
         field_names = [f["name"] for f in fields_to_add]
-        logger.info("Fields to add: {}".format(field_names))
+        logger.info("\tFields to add: {}".format(field_names))
         add_fields_response = taskLyr.manager.add_to_definition(
             {"fields": fields_to_add}
         )
@@ -174,6 +170,8 @@ def run_update(the_func):
         # Run Function & Collect Update List
         edit_list = the_func(*args)
         num_total_records = len(edit_list)
+        num_succeeded_records = 0
+        num_failed_records = 0
 
         if edit_list:
             operation = kwargs.get("operation", None)
@@ -314,8 +312,6 @@ def read_featureLayer_to_featureClass(taskLyr, sWhere, outFields=[]):
         return None, None
     else:
         logger.info("\tNumber of features found: {}".format(len(watershed_sdf)))
-        # add a new column to store the fld_objectId values
-        watershed_sdf[internal_object_id_fld] = watershed_sdf[fld_objectId]
 
         # Save the spatial dataframe to a feature class in the in_memory workspace
         watershed_fc = "in_memory/watershed_fc"
@@ -411,7 +407,7 @@ def flag_elongated(task, taskItem, taskLyr, rule_config):
         area_unit="SQUARE_KILOMETERS",
     )
 
-    # Use arcpy calculate field to Calculate the circularity ratio, which is the area devided by the perimeter squared
+    # Use arcpy calculate field to Calculate the circularity ratio, which is the area divided by the perimeter squared
     logger.info("\tCalculating circularity ratio for each feature")
     arcpy.management.CalculateField(
         in_table=watershed_fc,
@@ -477,7 +473,7 @@ def flag_multiparts(task, taskItem, taskLyr, rule_config):
     list_to_update = []
 
     # use arcpy to calculate the number of parts in the geometry using Arcade
-    logger.info("\tCalculating number of parts")
+    logger.info("\tCalculating number of rings")
     arcpy.management.CalculateField(
         in_table=watershed_fc,
         field="num_parts",
@@ -487,7 +483,7 @@ def flag_multiparts(task, taskItem, taskLyr, rule_config):
     )
 
     # Query the feature class where num_parts > 1 to a new feature class in the in_memory workspace
-    logger.info("\tQuerying multipart polygons")
+    logger.info("\tQuerying polygons with more than one ring")
     sWhere_mpart = "num_parts > 1"
     multipart_fc = "in_memory/multipart_fc"
     if arcpy.Exists(multipart_fc):
@@ -501,9 +497,9 @@ def flag_multiparts(task, taskItem, taskLyr, rule_config):
     if count == 0:
         logger.info("\tNo multipart polygons found")
     else:
-        logger.info("\tNumber of multipart polygons found: {}".format(count))
+        logger.info("\tNumber of multi-ring polygons found: {}".format(count))
         logger.info(
-            "\tBuffering them the half of the resolution to see if they are still multipart"
+            "\tBuffering them the half of the resolution to see if they are still multi-rings"
         )
 
         # arcpy.management.CalculateField(
@@ -520,7 +516,7 @@ def flag_multiparts(task, taskItem, taskLyr, rule_config):
         arcpy.analysis.Buffer(
             in_features=multipart_fc,
             out_feature_class=buffered_fc,
-            buffer_distance_or_field="{} Meters".format(resolution_meters),
+            buffer_distance_or_field="{} Meters".format(resolution_meters / 2),
             dissolve_option="NONE",
             method="PLANAR",
         )

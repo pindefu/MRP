@@ -69,6 +69,8 @@ def run_update(the_func):
         # Run Function & Collect Update List
         edit_list = the_func(*args)
         num_total_records = len(edit_list)
+        num_succeeded_records = 0
+        num_failed_records = 0
 
         if edit_list:
             operation = kwargs.get("operation", None)
@@ -470,11 +472,11 @@ def flag_landforms(taskItem, taskLyr, task):
     sdf = taskLyr.query(where=where, out_fields=[oid_field]).sdf
 
     # check if the in memory points feature already exists, it it does, delete it
-    if arcpy.Exists("in_memory/points"):
-        arcpy.Delete_management("in_memory/points")
+    if arcpy.Exists("memory/points"):
+        arcpy.Delete_management("memory/points")
 
     # conver the sdf to a feature class in memory
-    sdf.spatial.to_featureclass(location="in_memory/points")
+    sdf.spatial.to_featureclass(location="memory/points")
 
     in_rasters = task["rules_to_run"]["flag_landforms"]["in_rasters"]
     # loop through the in_rasters, and build the string to pass to the ExtractMultiValuesToPoints tool.
@@ -486,16 +488,16 @@ def flag_landforms(taskItem, taskLyr, task):
         raster_string += "{} {} ".format(raster, "tmp_landform_{}".format(i + 1))
 
     arcpy.sa.ExtractMultiValuesToPoints(
-        in_point_features="in_memory/points",
+        in_point_features="memory/points",
         in_rasters=raster_string,
         bilinear_interpolate_values="NONE",
     )
 
-    # get the object id field name from the in_memory/points feature class
-    oid_field_fc = arcpy.ListFields("in_memory/points", "*", "OID")[0].name
+    # get the object id field name from the memory/points feature class
+    oid_field_fc = arcpy.ListFields("memory/points", "*", "OID")[0].name
 
     # convert the points feature class back to a spatial dataframe
-    sdf_fc = pd.DataFrame.spatial.from_featureclass("in_memory/points")
+    sdf_fc = pd.DataFrame.spatial.from_featureclass("memory/points")
     # print(sdf_fc)
 
     # Loop through rows in the sdf.
@@ -519,8 +521,8 @@ def flag_landforms(taskItem, taskLyr, task):
 
         list_to_update.append({"attributes": new_attributes})
 
-    if arcpy.Exists("in_memory/points"):
-        arcpy.Delete_management("in_memory/points")
+    if arcpy.Exists("memory/points"):
+        arcpy.Delete_management("memory/points")
 
     logger.info("\tNumber of flagged points: {}".format(num_flagged))
 
