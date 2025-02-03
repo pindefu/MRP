@@ -1,14 +1,15 @@
 {
   "log_folder": "C:\\dev\\USGS_MRP\\logs",
 
+  "tags_to_inject": ["watershed flags"],
   "rules_to_run": {
     "flag_size": {
-      "skip": true,
+      "skip": false,
       "cutoff_large": 0.975,
       "cutoff_small": 0.025
     },
     "flag_elongated": {
-      "skip": true,
+      "skip": false,
       "cutoff_large": 0.995,
       "cutoff_small": 0.005
     },
@@ -22,10 +23,10 @@
     {
       "name": "Watersheds",
       "skip": false,
-      "itemId": "1512dd91ff5c4a04b89eee2ec4bf4176",
-      "itemId1": "c60b09a709884a52a5dac5fd27b056b5",
+      "itemId": "954390e573d4494e9294d00dabf747d6",
+      "itemId1": "1512dd91ff5c4a04b89eee2ec4bf4176",
       "lyrId": 0,
-      "where": "OBJECTID < 1000"
+      "where": "1=1"
     }
   ],
 

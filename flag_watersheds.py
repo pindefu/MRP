@@ -557,6 +557,63 @@ def connect_to_portal(parameters):
         return GIS(portal_url, the_username, the_password)
 
 
+def updateItemProperties(result_item, rules_to_run, tags_to_inject, gis, completedOn):
+    # check if you have the right to update the item
+    try:
+        me = gis.users.me
+        userFullName = me.fullName
+        newDescription = "<B>Watersheds flagged by: {} on {} using the following parameters:</b>  \n<br>".format(
+            userFullName, completedOn
+        )
+        newDescription += "<ul>"
+
+        if not rules_to_run["flag_size"]["skip"]:
+            newDescription += "<li>Flag Size: Cut values are {} for too large and {} for too small </li>".format(
+                rules_to_run["flag_size"]["cutoff_large"],
+                rules_to_run["flag_size"]["cutoff_small"],
+            )
+
+        if not rules_to_run["flag_elongated"]["skip"]:
+            newDescription += "<li>Flag Elongated: Cut values are {} for too long and {} for too round</li>".format(
+                rules_to_run["flag_elongated"]["cutoff_large"],
+                rules_to_run["flag_elongated"]["cutoff_small"],
+            )
+
+        if not rules_to_run["flag_multiparts"]["skip"]:
+            newDescription += "<li>Flag Multipart: Resolution is {} meters</li>".format(
+                rules_to_run["flag_multiparts"]["resolution_meters"]
+            )
+
+        newDescription += "</ul>"
+        if result_item.description is not None:
+            newDescription += "\n\n<br><br>" + result_item.description
+        props = {"description": newDescription}
+
+        if tags_to_inject and len(tags_to_inject) > 0:
+            # Check if the tags in tags_to_inject are already in the item
+            # if not, add them
+            tags = result_item.tags
+            # drop empty tags
+            tags = [tag for tag in tags if tag]
+            for tag in tags_to_inject:
+                if tag not in tags:
+                    tags.append(tag)
+            props["tags"] = tags
+
+        update_response = result_item.update(item_properties=props)
+        logger.info(
+            "Update result item metadata: {}".format(
+                "Successful" if update_response else "Failed"
+            )
+        )
+
+    except Exception as e:
+        if e.args[0].find("403") > 0 and e.args[0].find("permissions") > 0:
+            print("User does not have permissions to update the metadata of the item")
+        else:
+            print("Error updating item description: {}".format(e))
+
+
 if __name__ == "__main__":
 
     # Get Start Time
@@ -579,6 +636,7 @@ if __name__ == "__main__":
 
     try:
         rules_to_run = parameters["rules_to_run"]
+        tags_to_inject = parameters["tags_to_inject"]
 
         tasks = parameters["tasks"]
         for task in tasks:
@@ -609,6 +667,10 @@ if __name__ == "__main__":
                 flag_multiparts(
                     task, taskItem, taskLyr, rules_to_run["flag_multiparts"]
                 )
+
+            updateItemProperties(
+                taskItem, rules_to_run, tags_to_inject, gis, datetime.now()
+            )
 
     except Exception:
         logger.info(traceback.format_exc())

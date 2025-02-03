@@ -1,8 +1,23 @@
 {
   "log_folder": "C:\\dev\\USGS_MRP\\logs",
-
+  "tags_to_inject": ["watersheds", "geochemistry", "stream sediments"],
   "records_per_request": 2,
   "tasks": [
+    {
+      "name": "AGDB4_SleetmuteQuad",
+      "skip": false,
+      "inputLayerConfig": {
+        "itemId": "2e21549e68fb42c7933211805e02398e",
+        "layerId": 0,
+        "key_field": "LAB_ID",
+        "where": "1 = 1"
+      },
+      "outputWatershedLayerConfig": {
+        "itemId": "f727013695824519b86d40a2fcf597a2",
+        "watershed_layer_id": 0,
+        "snapped_points_layer_id": 1
+      }
+    },
     {
       "name": "Reanalyzed_NURE_HSSRv8",
       "skip": true,
@@ -20,7 +35,7 @@
     },
     {
       "name": "StreamSed_BV_subset",
-      "skip": false,
+      "skip": true,
       "inputLayerConfig": {
         "itemId": "5c78fa2a18dd4f488b2bbbdbed0a86b7",
         "layerId": 0,
