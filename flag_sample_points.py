@@ -581,6 +581,62 @@ def connect_to_portal(parameters):
         return GIS(portal_url, the_username, the_password)
 
 
+def updateItemProperties(result_item, task, tags_to_inject, gis, completedOn):
+    # check if you have the right to update the item
+    try:
+        me = gis.users.me
+        userFullName = me.fullName
+        newDescription = "<B>Input points flagged by: {} on {} using the following parameters:</b>  \n<br>".format(
+            userFullName, completedOn
+        )
+        newDescription += "<ul>"
+        newDescription += "<li>Latitide field: {} and longitude field: {}</li>".format(
+            task["latitide_field"], task["longitude_field"]
+        )
+        newDescription += "<li>Where filter: {}</li>".format(task["where"])
+
+        if not task["rules_to_run"]["flag_rounded"]["skip"]:
+            newDescription += "<li>Flag points with longitude and latitude rounded to the nearest degree, minute, and half minute: Yes </li>"
+
+        if not task["rules_to_run"]["flag_corners"]["skip"]:
+            newDescription += "<li>Flag points snapped to the corners of USGS 3.75' topographic quadrangle maps: Yes </li>"
+
+        if not task["rules_to_run"]["flag_landforms"]["skip"]:
+            newDescription += "<li>Flag points with landforms: Yes </li>"
+            newDescription += "<li>Landform rasters: {} </li>".format(
+                task["rules_to_run"]["flag_landforms"]["in_rasters"]
+            )
+
+        newDescription += "</ul>"
+        if result_item.description is not None:
+            newDescription += "\n\n<br><br>" + result_item.description
+        props = {"description": newDescription}
+
+        if tags_to_inject and len(tags_to_inject) > 0:
+            # Check if the tags in tags_to_inject are already in the item
+            # if not, add them
+            tags = result_item.tags
+            # drop empty tags
+            tags = [tag for tag in tags if tag]
+            for tag in tags_to_inject:
+                if tag not in tags:
+                    tags.append(tag)
+            props["tags"] = tags
+
+        update_response = result_item.update(item_properties=props)
+        logger.info(
+            "Update result item metadata: {}".format(
+                "Successful" if update_response else "Failed"
+            )
+        )
+
+    except Exception as e:
+        if e.args[0].find("403") > 0 and e.args[0].find("permissions") > 0:
+            print("User does not have permissions to update the metadata of the item")
+        else:
+            print("Error updating item description: {}".format(e))
+
+
 if __name__ == "__main__":
 
     # Get Start Time
@@ -603,6 +659,7 @@ if __name__ == "__main__":
     try:
 
         tasks = parameters["tasks"]
+        tags_to_inject = parameters["tags_to_inject"]
         for task in tasks:
             logger.info("\n\nStarting task: {}\n".format(task["name"]))
             bSkip = task.get("skip", False)
@@ -630,6 +687,8 @@ if __name__ == "__main__":
 
             if not rules_to_run["flag_landforms"]["skip"]:
                 flag_landforms(taskItem, taskLyr, task)
+
+            updateItemProperties(taskItem, task, tags_to_inject, gis, datetime.now())
 
     except Exception:
         logger.info(traceback.format_exc())

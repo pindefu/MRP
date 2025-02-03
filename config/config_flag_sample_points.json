@@ -1,21 +1,22 @@
 {
   "log_folder": "C:\\dev\\USGS_MRP\\logs",
 
+  "tags_to_inject": ["geochemistry point flags"],
   "tasks": [
     {
       "name": "Geochemical Sample Points",
       "skip": false,
-      "itemId": "5c78fa2a18dd4f488b2bbbdbed0a86b7",
+      "itemId": "bc30e664b5e44b74b80caef053448647",
       "lyrId": 0,
       "latitide_field": "LATITUDE",
       "longitude_field": "LONGITUDE",
-      "where": "LATITUDE IS NOT NULL and LONGITUDE IS NOT NULL",
+      "where": "1=1",
       "rules_to_run": {
         "flag_rounded": {
-          "skip": true
+          "skip": false
         },
         "flag_corners": {
-          "skip": true
+          "skip": false
         },
         "flag_landforms": {
           "skip": false,
