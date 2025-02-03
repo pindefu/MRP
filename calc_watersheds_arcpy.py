@@ -1,8 +1,6 @@
 import arcgis
 from arcgis.gis import GIS
 import arcpy
-
-# from arcgis.features.analysis import create_watersheds
 import traceback
 from datetime import datetime
 import logging
@@ -194,6 +192,58 @@ def connect_to_portal(parameters):
         return GIS(portal_url, the_username, the_password)
 
 
+def updateItemProperties(result_item, input_item, task, gis, completedOn):
+    # check if you have the right to update the item
+    try:
+        me = gis.users.me
+        userFullName = me.fullName
+        newDescription = "<B>Watersheds calculated by: {} on {} using the following parameters:</b>  \n<br>".format(
+            userFullName, completedOn
+        )
+        newDescription += "<ul><li>Input point item: <a href='https://usgs.maps.arcgis.com/home/item.html?id={}' target='_blank'>{}</a></li>".format(
+            input_item.id, input_item.title
+        )
+        newDescription += "<li>Input point layer: <a href='https://usgs.maps.arcgis.com/home/item.html?id={}&sublayer={}#data' target='_blank'>{}</a></li>".format(
+            input_item.id,
+            task["inputLayerConfig"]["layerId"],
+            input_item.layers[task["inputLayerConfig"]["layerId"]].properties.name,
+        )
+        newDescription += "<li>key_field: {}</li>".format(
+            task["inputLayerConfig"]["key_field"]
+        )
+        newDescription += "<li>Where: {}</li>".format(task["inputLayerConfig"]["where"])
+        newDescription += "</ul>"
+        if result_item.description is not None:
+            newDescription += "\n\n<br><br>" + result_item.description
+        props = {"description": newDescription}
+
+        # Check if the tags watersheds, geochemistry, stream sediments are already in the item
+        # if not, add them
+        tags = result_item.tags
+        if "geochemistry" not in tags:
+            tags.append("geochemistry")
+        if "watersheds" not in tags:
+            tags.append("watersheds")
+        if "stream sediments" not in tags:
+            tags.append("stream sediments")
+
+        if len(tags) > 0:
+            props["tags"] = tags
+
+        update_response = result_item.update(item_properties=props)
+        logger.info(
+            "Update result item metadata: {}".format(
+                "Successful" if update_response else "Failed"
+            )
+        )
+
+    except Exception as e:
+        if e.args[0].find("403") > 0 and e.args[0].find("permissions") > 0:
+            print("User does not have permissions to update the metadata of the item")
+        else:
+            print("Error updating item description: {}".format(e))
+
+
 if __name__ == "__main__":
 
     # Get Start Time
@@ -245,59 +295,64 @@ if __name__ == "__main__":
 
             outputWatershedItem = gis.content.get(outputWatershedItemId)
 
-            watershedFeatureLayer = outputWatershedItem.layers[watershed_layer_id]
-            adjPointsFeatureLayer = outputWatershedItem.layers[adjPoints_layer_id]
+            # watershedFeatureLayer = outputWatershedItem.layers[watershed_layer_id]
+            # adjPointsFeatureLayer = outputWatershedItem.layers[adjPoints_layer_id]
 
-            # return all the id of the samples
-            samples_resp = samples_layer.query(
-                where=sWhere,
-                out_fields=[key_field],
-                return_distinct_values=True,
-                return_all_records=True,
-                return_geometry=False,
-            )
-            all_samples = [f.attributes[key_field] for f in samples_resp.features]
-            # logger.info("All samples: {}".format(all_samples))
-            len_all_samples = len(all_samples)
+            # # return all the id of the samples
+            # samples_resp = samples_layer.query(
+            #     where=sWhere,
+            #     out_fields=[key_field],
+            #     return_distinct_values=True,
+            #     return_all_records=True,
+            #     return_geometry=False,
+            # )
+            # all_samples = [f.attributes[key_field] for f in samples_resp.features]
+            # # logger.info("All samples: {}".format(all_samples))
+            # len_all_samples = len(all_samples)
 
-            # return all the unique Ids of the samples that have already been calculated
-            watershed_resp = watershedFeatureLayer.query(
-                "1=1",
-                out_fields=output_key_field,
-                return_distinct_values=True,
-                return_all_records=True,
-                return_geometry=False,
-            )
-            calculated_samples = [
-                f.attributes[output_key_field] for f in watershed_resp.features
-            ]
-            # logger.info("Calculated samples: {}".format(calculated_samples))
-            len_calculated_samples = len(calculated_samples)
+            # # return all the unique Ids of the samples that have already been calculated
+            # watershed_resp = watershedFeatureLayer.query(
+            #     "1=1",
+            #     out_fields=output_key_field,
+            #     return_distinct_values=True,
+            #     return_all_records=True,
+            #     return_geometry=False,
+            # )
+            # calculated_samples = [
+            #     f.attributes[output_key_field] for f in watershed_resp.features
+            # ]
+            # # logger.info("Calculated samples: {}".format(calculated_samples))
+            # len_calculated_samples = len(calculated_samples)
 
-            # get the lab ids of the samples that have not been calculated
-            samples_to_calculate = list(set(all_samples) - set(calculated_samples))
+            # # get the lab ids of the samples that have not been calculated
+            # samples_to_calculate = list(set(all_samples) - set(calculated_samples))
 
-            logger.info("Samples to calculate: {}".format(samples_to_calculate))
+            # logger.info("Samples to calculate: {}".format(samples_to_calculate))
 
-            num_of_features = len(samples_to_calculate)
-            logger.info(
-                "\n\nTotal {}, Calculated {}, Remaining {}".format(
-                    len_all_samples, len_calculated_samples, num_of_features
-                )
-            )
+            # num_of_features = len(samples_to_calculate)
+            # logger.info(
+            #     "\n\nTotal {}, Calculated {}, Remaining {}".format(
+            #         len_all_samples, len_calculated_samples, num_of_features
+            #     )
+            # )
 
-            # Go to the next task if there are no more samples to calculate
-            if num_of_features == 0:
-                continue
+            # # Go to the next task if there are no more samples to calculate
+            # if num_of_features == 0:
+            #     continue
 
-            calculate_watershed_for_featureset(
-                samples_layer,
-                key_field,
-                watershedFeatureLayer,
-                adjPointsFeatureLayer,
-                samples_to_calculate,
-                records_per_request,
-                seconds_between_requests,
+            # calculate_watershed_for_featureset(
+            #     samples_layer,
+            #     key_field,
+            #     watershedFeatureLayer,
+            #     adjPointsFeatureLayer,
+            #     samples_to_calculate,
+            #     records_per_request,
+            #     seconds_between_requests,
+            # )
+
+            # Update the description of the output item outputWatershedItem
+            updateItemProperties(
+                outputWatershedItem, samplesItem, task, gis, datetime.now()
             )
 
     except Exception:
