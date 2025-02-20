@@ -1,0 +1,26 @@
+{
+  "log_folder": "C:\\dev\\USGS_MRP\\logs",
+
+  "tasks": [
+    {
+      "name": "Cumo_Geochem_BV Sample",
+      "skip": false,
+      "itemId": "06964ad155954f0db05d05634eceafe7",
+      "lyrId": 0,
+      "latitide_field": "LAT_WGS84",
+      "longitude_field": "LON_WGS84",
+      "where": "1=1",
+      "survey_info": {
+        "itemId": "6f9b18f549c84703861e571d47adcf41",
+        "tableId": 0
+      }
+    }
+  ],
+  "the_portal": {
+    "use_ArcGIS_Pro": true,
+    "url": "https://usgs.maps.arcgis.com/",
+
+    "user": "pfu_USGS",
+    "pass": "xxxxxx"
+  }
+}
