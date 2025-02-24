@@ -230,7 +230,7 @@ def updateItemProperties(result_item, rules_to_run, tags_to_inject, gis, complet
             print("Error updating item description: {}".format(e))
 
 
-def drill_hole_end_point(lat, lon, elev, depth, sections):
+def drill_hole_end_point(lat, lon, elev, lngth, sections):
     """
     Calculate the latitude, longitude, and elevation of the end point of a drill hole.
 
@@ -238,46 +238,66 @@ def drill_hole_end_point(lat, lon, elev, depth, sections):
     lat (float): Latitude of the entry point (decimal degrees)
     lon (float): Longitude of the entry point (decimal degrees)
     elev (float): Elevation of the entry point (meters above sea level)
-    depth (float): Target depth to compute position for (meters)
-    sections (list): List of sections in format [[start_depth, dip, azimuth], ...]
+    lngth (float): Target lngth to compute position for (meters)
+    sections (list): List of sections in format [[start_lngth, dip, azimuth], ...]
 
     Returns:
     dict: {"latitude": new_lat, "longitude": new_lon, "elevation": new_elev}
     """
     rad = math.pi / 180  # Convert degrees to radians
+    earth_radius = 6371000  # Earth's radius in meters
     current_lat = lat
     current_lon = lon
     current_elev = elev
-    remaining_depth = depth
+    remaining_lngth = lngth
 
-    # Process each section in order until the target depth is reached
+    # Process each section in order until the target lngth is reached
     for i in range(len(sections) - 1):
         section_start, dip, azimuth = sections[i]
         section_end = sections[i + 1][0]  # Next section start
 
-        if section_start >= depth:
-            break  # Stop processing if we've reached the target depth
+        if section_start >= lngth:
+            break  # Stop processing if we've reached the target lngth
 
         # Determine how much of this section to process
-        section_depth = min(section_end, depth) - section_start
+        section_lngth = min(section_end, lngth) - section_start
 
-        if section_depth <= 0:
-            continue  # Skip sections that are above the input depth
+        if section_lngth <= 0:
+            continue  # Skip sections that are above the input lngth
 
         # Convert angles to radians
-        dip_rad = dip * rad
+        dip_rad = abs(dip) * rad
+        azimuth_rad = azimuth * rad
 
         # Compute vertical displacement correctly
-        vertical_depth = section_depth * math.cos(dip_rad)  # Proper accumulation
+        vertical_depth = section_lngth * math.sin(dip_rad)  # Proper accumulation
 
         # Update elevation correctly
-        current_elev += vertical_depth
+        current_elev -= vertical_depth
 
-        # Reduce remaining depth
-        remaining_depth -= section_depth
+        # Reduce remaining lngth
+        remaining_lngth -= section_lngth
 
-        # Stop if we've reached the target depth
-        if remaining_depth <= 0:
+        # calculate the horizontal displacement
+        horizontal_lngth = section_lngth * math.cos(dip_rad)
+
+        # calculate the new latitude by calculating the change in latitude.
+        # The change needs to be in angular units based on the radius of the earth
+        # The change in latitude is the horizontal displacement times the cosine of the azimuth
+        # divided by the radius of the earth
+        delta_lat = (horizontal_lngth * math.cos(azimuth_rad)) / earth_radius
+        current_lat += delta_lat / rad
+        # calculate the new longitude by calculating the change in longitude.
+        # The change needs to be in angular units based on the radius of the circle at the current latitude
+        # The change in longitude is the horizontal displacement times the sine of the azimuth
+        # divided by the radius of the circle at the current latitude
+        delta_lon = (horizontal_lngth * math.sin(azimuth_rad)) / (
+            earth_radius * math.cos(lat * rad)
+        )
+        current_lon += delta_lon / rad
+
+        # Stop if we've reached the target lngth
+        if remaining_lngth <= 0:
             break
 
     return {
@@ -326,7 +346,7 @@ if __name__ == "__main__":
 
             # read the unique hole ids from the taskLyr
             resp_holeIDs = taskLyr.query(
-                where="Calculated is null or Calculated = 0",
+                where="Calculated is null or Calculated = 0 or Calculated = 1",
                 out_fields="holeID",
                 return_geometry=False,
                 return_distinct_values=True,
@@ -371,10 +391,8 @@ if __name__ == "__main__":
             list_to_update = []
             for hId in hole_ids:
                 # query the task layer for the hole ID to get the object id, midpoint length, the latitude, and longitude
-                sWhere = (
-                    "(Calculated is null or Calculated = 0) and holeID = '{}'".format(
-                        hId
-                    )
+                sWhere = "(Calculated is null or Calculated = 0 or Calculated = 1) and holeID = '{}'".format(
+                    hId
                 )
                 resp_hole = taskLyr.query(
                     where=sWhere,
@@ -421,7 +439,9 @@ if __name__ == "__main__":
                         # entry_lat if previous_x is not None, else lat
                         entry_lat = lat if previous_y is not None else lat
                         entry_lon = lon if previous_x is not None else lon
-                        entry_elev = previous_z if previous_z is not None else top_z
+                        entry_elev = (
+                            previous_z if previous_z is not None else top_z / 3.28084
+                        )
 
                         target_depth = midpoint_ft / 3.28084  # Convert feet to meters
 
