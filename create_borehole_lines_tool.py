@@ -285,7 +285,12 @@ def extend_lengths(survey_dict, lab_Table):
 
 
 def script_tool(
-    collar_FC, survey_Table, lab_Table, method, out_3D_Polyline_FC, spatial_reference
+    collar_FC,
+    spatial_reference,
+    survey_Table,
+    lab_Table,
+    method,
+    out_3D_Polyline_FC,
 ):
 
     if not check_Existence_and_Fields(
@@ -328,9 +333,23 @@ def script_tool(
     for hole_id in survey_dict.keys():
         arcpy.AddMessage(f"Creating hole {hole_id}...")
         borehole_dict = survey_dict[hole_id]
-        borehole_line = create_borehole_line(hole_id, borehole_dict, method)
-        boreRows.append((hole_id, borehole_line))
+        borehole_line, max_length = create_borehole_line(
+            hole_id, borehole_dict, method, spatial_reference
+        )
+        boreRows.append((hole_id, max_length, borehole_line))
 
+    create_output_feature_class(out_3D_Polyline_FC, spatial_reference)
+    ins_cursor = arcpy.da.InsertCursor(
+        out_3D_Polyline_FC, [hole_id_field, "mLength", "SHAPE@"]
+    )
+    for boreRow in boreRows:
+        ins_cursor.insertRow(boreRow)
+    del ins_cursor
+    arcpy.AddMessage(f"Borehole lines created in {out_3D_Polyline_FC}")
+    arcpy.SetParameterAsText(5, out_3D_Polyline_FC)
+
+
+def create_output_feature_class(out_3D_Polyline_FC, spatial_reference):
     if arcpy.Exists(out_3D_Polyline_FC):
         arcpy.Delete_management(out_3D_Polyline_FC)
 
@@ -349,22 +368,16 @@ def script_tool(
     arcpy.management.AddField(
         out_3D_Polyline_FC, hole_id_field, "TEXT", field_length=50
     )
-
-    cursor = arcpy.da.InsertCursor(out_3D_Polyline_FC, [hole_id_field, "SHAPE@"])
-    for boreRow in boreRows:
-        cursor.insertRow(boreRow)
-    del cursor
-    arcpy.AddMessage(f"Borehole lines created in {out_3D_Polyline_FC}")
-    arcpy.SetParameterAsText(4, out_3D_Polyline_FC)
+    arcpy.management.AddField(out_3D_Polyline_FC, "mLength", "DOUBLE")
 
 
-def create_borehole_line(hole_id, borehole_dict, method):
-
+def create_borehole_line(hole_id, borehole_dict, method, spatial_reference):
     x_start = borehole_dict["top_x"]
     y_start = borehole_dict["top_y"]
     z_start = borehole_dict["top_z"]
 
     sections = borehole_dict["sections"]
+    max_length = sections[-1][0]
     xyz_deltas = [[0, 0, 0, 0]]
     previous_value = [0, 0, 0, 0]
 
@@ -420,26 +433,29 @@ def create_borehole_line(hole_id, borehole_dict, method):
         return None
 
     # Create a polyline from the point array
-    borehole_line = arcpy.Polyline(pnt_array, None, True)
+    borehole_line = arcpy.Polyline(pnt_array, spatial_reference, True, True)
 
-    return borehole_line
+    return borehole_line, max_length
 
 
 if __name__ == "__main__":
 
-    # collar_FC = arcpy.GetParameterAsText(0)
-    # survey_Table = arcpy.GetParameterAsText(1)
-    # lab_Table = arcpy.GetParameterAsText(2)
-    # method = arcpy.GetParameterAsText(3)
-    # out_3D_Polyline_FC = arcpy.GetParameterAsText(4)
-    # spatial_reference = arcpy.GetParameterAsText(5)
+    inPro = False
 
-    collar_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/collar_cumo_points"
-    survey_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/survey_cumo"
-    lab_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_Geochem_BV"
-    method = "Radius of Curvature"
-    out_3D_Polyline_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/borehole_lines"
-    spatial_reference = arcpy.SpatialReference(32611)
+    if inPro:
+        collar_FC = arcpy.GetParameterAsText(0)
+        spatial_reference = arcpy.GetParameterAsText(1)
+        survey_Table = arcpy.GetParameterAsText(2)
+        lab_Table = arcpy.GetParameterAsText(3)
+        method = arcpy.GetParameterAsText(4)
+        out_3D_Polyline_FC = arcpy.GetParameterAsText(5)
+    else:
+        collar_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/collar_cumo_points"
+        spatial_reference = arcpy.SpatialReference(32611)
+        survey_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/survey_cumo"
+        lab_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_Geochem_BV"
+        method = "Minimum Curvature"
+        out_3D_Polyline_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/borehole_linesm"
 
     # print the input parameters
     arcpy.AddMessage(f"Collar Feature Class: {collar_FC}")
@@ -448,10 +464,9 @@ if __name__ == "__main__":
 
     script_tool(
         collar_FC,
+        spatial_reference,
         survey_Table,
         lab_Table,
         method,
         out_3D_Polyline_FC,
-        spatial_reference,
     )
-    arcpy.SetParameterAsText(3, "Result")
