@@ -11,9 +11,9 @@ import math
 
 global x_field, y_field, z_field, length_field, dip_field, bearing_field, hole_id_field
 # Required field names in the collar feature class
-x_field = "Easting_m_UTM11_NAD83HARN1999"
-y_field = "Northing_m_UTMNAD83HARN1999"
-z_field = "Elevation_mNAVD88"
+x_field = "X_Coord"
+y_field = "Y_Coord"
+z_field = "Elevation_m"
 dip_field_in_collar = "DIP"
 bearing_field_in_collar = "Bearing"
 hole_id_field = "holeID"
@@ -49,7 +49,7 @@ def tan_degree(degree):
 
 
 def radius_curvature(md_1, incl_1, azm_1, md_2, incl_2, azm_2):
-    """http://www.drillingformulas.com/radius-of-curvature-method"""
+    """https://www.drillingformulas.com/radius-of-curvature-method"""
 
     delta_md = md_2 - md_1
 
@@ -103,7 +103,7 @@ def radius_curvature(md_1, incl_1, azm_1, md_2, incl_2, azm_2):
 
 
 def average_angle(md_1, incl_1, azm_1, md_2, incl_2, azm_2):
-    """http://www.drillingformulas.com/angle-averaging-method-in-directional-drilling-calculation"""
+    """https://www.drillingformulas.com/angle-averaging-method-in-directional-drilling-calculation"""
 
     delta_md = md_2 - md_1
     delta_ns = (
@@ -118,7 +118,7 @@ def average_angle(md_1, incl_1, azm_1, md_2, incl_2, azm_2):
 
 
 def minimum_curvature(md_1, incl_1, azm_1, md_2, incl_2, azm_2):
-    """http://www.drillingformulas.com/minimum-curvature-method"""
+    """https://www.drillingformulas.com/minimum-curvature-method"""
 
     beta = math.acos(
         cos_degree(incl_2 - incl_1)
@@ -181,6 +181,7 @@ def read_survey_data_to_dict(survey_Table, collar_sdf):
     # {holeID: {sections: [[LENGTH, DIP, bearing], [LENGTH, DIP, bearing] ...],
     # top_x: xxxx, top_y: yyyyyy, top_z: zzzzzzz}}
     survey_df = GeoAccessor.from_table(survey_Table)
+    # survey_df = survey_df[survey_df[hole_id_field] == "C71-03"]
     # Check if the survey data is empty
     if survey_df.empty:
         arcpy.AddError("Survey data is empty.")
@@ -318,6 +319,8 @@ def script_tool(
     ):
         return
 
+    create_output_feature_class(out_3D_Polyline_FC, spatial_reference)
+
     # Read the collar data into a pandas DataFrame
     collar_sdf = read_collar_data_to_sdf(collar_FC)
     if collar_sdf.empty:
@@ -338,9 +341,8 @@ def script_tool(
         )
         boreRows.append((hole_id, max_length, borehole_line))
 
-    create_output_feature_class(out_3D_Polyline_FC, spatial_reference)
     ins_cursor = arcpy.da.InsertCursor(
-        out_3D_Polyline_FC, [hole_id_field, "mLength", "SHAPE@"]
+        out_3D_Polyline_FC, [hole_id_field, "max_length_m", "SHAPE@"]
     )
     for boreRow in boreRows:
         ins_cursor.insertRow(boreRow)
@@ -368,7 +370,7 @@ def create_output_feature_class(out_3D_Polyline_FC, spatial_reference):
     arcpy.management.AddField(
         out_3D_Polyline_FC, hole_id_field, "TEXT", field_length=50
     )
-    arcpy.management.AddField(out_3D_Polyline_FC, "mLength", "DOUBLE")
+    arcpy.management.AddField(out_3D_Polyline_FC, "max_length_m", "DOUBLE")
 
 
 def create_borehole_line(hole_id, borehole_dict, method, spatial_reference):
@@ -413,11 +415,7 @@ def create_borehole_line(hole_id, borehole_dict, method, spatial_reference):
         ew = xyz_delta[2]
         ns = xyz_delta[3]
 
-        pnt = arcpy.Point()
-        pnt.X = x_start + ew  # ew for X and ns for Y
-        pnt.Y = y_start + ns
-        pnt.Z = z_start + tvd
-        pnt.M = md
+        pnt = arcpy.Point(X=x_start + ew, Y=y_start + ns, Z=z_start + tvd, M=md)
         pnt_array.add(pnt)
 
     # display the point array
@@ -433,7 +431,7 @@ def create_borehole_line(hole_id, borehole_dict, method, spatial_reference):
         return None
 
     # Create a polyline from the point array
-    borehole_line = arcpy.Polyline(pnt_array, spatial_reference, True, True)
+    borehole_line = arcpy.Polyline(pnt_array, spatial_reference, has_z=True, has_m=True)
 
     return borehole_line, max_length
 

@@ -286,14 +286,14 @@ def create_lab_segments(borehole_dict, lab_df):
 
 if __name__ == "__main__":
 
-    inPro = False
+    inPro = True
 
     if inPro:
         borehole_lines_FC = arcpy.GetParameterAsText(0)
         lab_table = arcpy.GetParameterAsText(1)
         out_Lab_segment_Lines_FC = arcpy.GetParameterAsText(2)
     else:
-        borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/collar_borehole_radius_curvature"
+        borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/cumo_wells"
         lab_table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_Geochem_BV"
         out_Lab_segment_Lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/lab_segments_3D"
 
