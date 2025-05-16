@@ -11,22 +11,22 @@ import math
 
 global x_field, y_field, z_field, length_field, dip_field, bearing_field, hole_id_field
 # Required field names in the collar feature class
-x_field = "X_Coord"
-y_field = "Y_Coord"
-z_field = "Elevation_m"
+x_field = "X_Coord_ft"  # X_Coord
+y_field = "Y_Coord_ft"  # Y_Coord
+z_field = "Elev_ft"  # Elev_m
 dip_field_in_collar = "DIP"
 bearing_field_in_collar = "Bearing"
 hole_id_field = "holeID"
 
 # In the Survey table
-length_field = "length_m"
+length_field = "len_ft"  # len_m
 dip_field = "DIP"
 bearing_field = "bearing"
 # hole_id_field = "holeID"
 
 # In the lab table
-from_len_field = "from_length_m"
-to_len_field = "to_length_m"
+from_len_field = "from_ft"  # from_m
+to_len_field = "to_ft"  # to_m
 # hole_id_field = "holeID"
 
 
@@ -155,19 +155,32 @@ def minimum_curvature(md_1, incl_1, azm_1, md_2, incl_2, azm_2):
     return [md_2, delta_tvd, delta_ew, delta_ns]
 
 
-def read_collar_data_to_sdf(collar_FC):
-    # Read the collar feature class into a pandas DataFrame
-    collar_df = GeoAccessor.from_featureclass(collar_FC)
-    collar_df = collar_df[
-        [
+def read_collar_data_to_sdf(collar_Table):
+    # Read the collar table, which can be a feature class, or a table, or a csv, into a pandas DataFrame
+    # collar_df = GeoAccessor.from_featureclass(collar_Table)
+    # collar_df = collar_df[
+    #     [
+    #         x_field,
+    #         y_field,
+    #         z_field,
+    #         hole_id_field,
+    #         dip_field_in_collar,
+    #         bearing_field_in_collar,
+    #     ]
+    # ]
+    collar_df = pd.DataFrame.spatial.from_table(
+        collar_Table,
+        fields=[
             x_field,
             y_field,
             z_field,
             hole_id_field,
             dip_field_in_collar,
             bearing_field_in_collar,
-        ]
-    ]
+        ],
+        skip_nulls=True,
+    )
+
     # Check if the collar data is empty
     if collar_df.empty:
         arcpy.AddError("Collar data is empty.")
@@ -245,10 +258,14 @@ def check_Existence_and_Fields(table, required_fields, tbl_Title):
 
 
 def extend_lengths(survey_dict, lab_Table):
+    # Check if the lab table exists
+    if not arcpy.Exists(lab_Table):
+        arcpy.AddError(f"Lab table {lab_Table} does not exist.")
+        return survey_dict
 
     # read the maximum length from the lab table
     lab_df = pd.DataFrame.spatial.from_table(
-        lab_Table, fields=[hole_id_field, to_len_field], skip_nulls=False
+        lab_Table, fields=[hole_id_field, to_len_field], skip_nulls=True
     )
     # check if the lab table is empty
     if lab_df.empty:
@@ -286,7 +303,7 @@ def extend_lengths(survey_dict, lab_Table):
 
 
 def script_tool(
-    collar_FC,
+    collar_Table,
     spatial_reference,
     survey_Table,
     lab_Table,
@@ -295,7 +312,7 @@ def script_tool(
 ):
 
     if not check_Existence_and_Fields(
-        collar_FC,
+        collar_Table,
         [
             x_field,
             y_field,
@@ -322,7 +339,7 @@ def script_tool(
     create_output_feature_class(out_3D_Polyline_FC, spatial_reference)
 
     # Read the collar data into a pandas DataFrame
-    collar_sdf = read_collar_data_to_sdf(collar_FC)
+    collar_sdf = read_collar_data_to_sdf(collar_Table)
     if collar_sdf.empty:
         arcpy.AddError("Collar data is empty.")
         return
@@ -428,7 +445,7 @@ def create_borehole_line(hole_id, borehole_dict, method, spatial_reference):
         arcpy.AddWarning(
             "Only {} points. Needing at least two points.".format(pnt_array.count)
         )
-        return None
+        return None, 0
 
     # Create a polyline from the point array
     borehole_line = arcpy.Polyline(pnt_array, spatial_reference, has_z=True, has_m=True)
@@ -441,27 +458,37 @@ if __name__ == "__main__":
     inPro = False
 
     if inPro:
-        collar_FC = arcpy.GetParameterAsText(0)
+        collar_Table = arcpy.GetParameterAsText(0)
         spatial_reference = arcpy.GetParameterAsText(1)
         survey_Table = arcpy.GetParameterAsText(2)
         lab_Table = arcpy.GetParameterAsText(3)
         method = arcpy.GetParameterAsText(4)
         out_3D_Polyline_FC = arcpy.GetParameterAsText(5)
     else:
-        collar_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/collar_cumo_points"
-        spatial_reference = arcpy.SpatialReference(32611)
-        survey_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/survey_cumo"
-        lab_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_Geochem_BV"
+        # collar_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/collar_cumo_points"
+        # spatial_reference = arcpy.SpatialReference(32611)
+        # survey_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/survey_cumo"
+        # lab_Table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_Geochem_BV"
+        out_3D_Polyline_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/borehole_line_from_shortFeetFields"
         method = "Minimum Curvature"
-        out_3D_Polyline_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/borehole_linesm"
+
+        collar_Table = (
+            r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_collar.csv"
+        )
+        spatial_reference = 'PROJCS["NAD_1983_2011_StatePlane_Alaska_5_FIPS_5005_Feet",GEOGCS["GCS_NAD_1983_2011",DATUM["D_NAD_1983_2011",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",1640416.666666667],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",54.0],UNIT["Foot_US",0.3048006096012192]]'
+        # spatial_reference = 'PROJCS["NAD_1983_2011_StatePlane_Alaska_5_FIPS_5005",GEOGCS["GCS_NAD_1983_2011",DATUM["D_NAD_1983_2011",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",54.0],UNIT["Meter",1.0]]'
+        survey_Table = (
+            r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_survey.csv"
+        )
+        lab_Table = r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_lab.csv"
 
     # print the input parameters
-    arcpy.AddMessage(f"Collar Feature Class: {collar_FC}")
+    arcpy.AddMessage(f"Collar Feature Class: {collar_Table}")
     arcpy.AddMessage(f"Survey Table: {survey_Table}")
     arcpy.AddMessage(f"Lab Table: {lab_Table}")
 
     script_tool(
-        collar_FC,
+        collar_Table,
         spatial_reference,
         survey_Table,
         lab_Table,
