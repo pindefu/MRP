@@ -6,7 +6,6 @@ import arcpy
 import pandas as pd
 from arcgis.features import GeoAccessor
 import os
-import math
 import json
 
 
@@ -16,25 +15,17 @@ hole_id_field = "holeID"
 
 # In the lab table
 # hole_id_field = "holeID"
-GlobalID_field = "GlobalID"
-from_len_field = "from_length_m"
-to_len_field = "to_length_m"
-
-# in the output feature class
-segment_globalID_field = "segment_GlobalID"
+from_len_field = "from_m"  # from_m or from_ft
+to_len_field = "to_m"  # to_m or to_ft
 
 
 def read_lab_data_to_df(lab_table):
-    # Read the collar feature class into a pandas DataFrame
-    lab_df = GeoAccessor.from_table(
-        lab_table,
-        fields=[
-            hole_id_field,
-            from_len_field,
-            to_len_field,
-            GlobalID_field,
-        ],
-    )
+    # Read the lab data into a pandas DataFrame
+    if lab_table.lower().endswith(".csv"):
+        lab_df = pd.read_csv(lab_table)
+    else:
+        lab_df = GeoAccessor.from_table(lab_table, skip_nulls=True)
+
     # Check if the collar data is empty
     if lab_df.empty:
         arcpy.AddError("Lab data is empty.")
@@ -111,23 +102,6 @@ def create_output_feature_class(out_Lab_segment_Lines_FC, spatial_reference):
         spatial_reference,
     )
 
-    # Add the holeID and GlobalID fields to the feature class
-    arcpy.management.AddField(
-        out_Lab_segment_Lines_FC, hole_id_field, "TEXT", field_length=50
-    )
-
-    arcpy.management.AddField(
-        out_Lab_segment_Lines_FC, "segment_GlobalID", "TEXT", field_length=50
-    )
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "from_m", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "from_x", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "from_y", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "from_z", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "to_m", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "to_x", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "to_y", "DOUBLE")
-    arcpy.management.AddField(out_Lab_segment_Lines_FC, "to_z", "DOUBLE")
-
 
 def script_tool(
     borehole_lines_FC, lab_table, out_Lab_segment_Lines_FC, spatial_reference
@@ -142,7 +116,7 @@ def script_tool(
 
     if not check_Existence_and_Fields(
         lab_table,
-        [from_len_field, to_len_field, hole_id_field, GlobalID_field],
+        [from_len_field, to_len_field, hole_id_field],
         "Lab Table",
     ):
         return
@@ -160,72 +134,107 @@ def script_tool(
 
     create_lab_segments(borehole_dict, lab_df)
 
-    save_lab_segments_to_fc(
-        lab_df, out_Lab_segment_Lines_FC, hole_id_field, GlobalID_field
-    )
+    save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field)
 
 
-def save_lab_segments_to_fc(
-    lab_df, out_Lab_segment_Lines_FC, hole_id_field, GlobalID_field
-):
+def save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field):
+    # Add shape field to the lab_df
+    lab_df["SHAPE@"] = None
 
-    ins_cursor = arcpy.da.InsertCursor(
-        out_Lab_segment_Lines_FC,
-        [
-            hole_id_field,
-            segment_globalID_field,
-            "from_m",
-            "from_x",
-            "from_y",
-            "from_z",
-            "to_m",
-            "to_x",
-            "to_y",
-            "to_z",
-            "SHAPE@",
-        ],
-    )
+    # loop through the columns in lab_df and add them to the feature class
+    fields_in_df = lab_df.columns.tolist()
 
+    # loop through fields_in_df and add them to the feature class
+    arcpy.AddMessage("\nAdding fields to the feature class...")
+    for fld in fields_in_df:
+        field_name = fld
+        dtype = lab_df[fld].dtype
+        field_type = "TEXT"
+        max_length = 255  # default
+
+        if pd.api.types.is_integer_dtype(dtype):
+            field_type = "LONG"
+        elif pd.api.types.is_float_dtype(dtype):
+            field_type = "DOUBLE"
+        elif pd.api.types.is_datetime64_any_dtype(dtype):
+            field_type = "DATE"
+        elif pd.api.types.is_bool_dtype(dtype):
+            field_type = "TEXT"
+            max_length = 5
+        else:
+            field_type = "TEXT"
+            if lab_df[fld].dtype == "object" or lab_df[fld].dtype == "string":
+                try:
+                    max_length = int(lab_df[fld].str.len().max() or 0) + 32
+                except Exception:
+                    max_length = 255
+
+        arcpy.AddMessage(f"Adding field {field_name} of type {field_type}")
+        # add the field to the feature class
+        if fld != "SHAPE@":
+            if field_type == "TEXT":
+                arcpy.AddField_management(
+                    out_Lab_segment_Lines_FC,
+                    field_name,
+                    field_type,
+                    field_length=max_length,
+                )
+            else:
+                arcpy.AddField_management(
+                    out_Lab_segment_Lines_FC, field_name, field_type
+                )
+
+    ins_cursor = arcpy.da.InsertCursor(out_Lab_segment_Lines_FC, fields_in_df)
+    arcpy.AddMessage("Inserting rows into the feature class...")
     # loop through the lab_df and create the lines and insert them into the feature class
+    idx = 0
     for index, row in lab_df.iterrows():
-        global_id = row[GlobalID_field]
-        hole_id = row[hole_id_field]
-        from_m = row[from_len_field]
+        if idx % 500 == 0:
+            arcpy.AddMessage(f"Processing index {idx}...")
+        idx += 1
+        from_len = row[from_len_field]
         from_x = row["from_x"]
         from_y = row["from_y"]
         from_z = row["from_z"]
-        to_m = row[to_len_field]
+        to_len = row[to_len_field]
         to_x = row["to_x"]
         to_y = row["to_y"]
         to_z = row["to_z"]
-        # create the polyline geometry
-        pLine = arcpy.Polyline(
-            arcpy.Array(
-                [
-                    arcpy.Point(from_x, from_y, from_z, 0),
-                    arcpy.Point(to_x, to_y, to_z, to_m - from_m),
-                ]
-            ),
-            spatial_reference,
-            True,
-            True,
-        )
-        # insert the row into the feature class
-        ins_cursor.insertRow(
-            (
-                hole_id,
-                global_id,
-                from_m,
-                from_x,
-                from_y,
-                from_z,
-                to_m,
-                to_x,
-                to_y,
-                to_z,
-                pLine,
+        if (
+            from_x is None
+            or from_y is None
+            or from_z is None
+            or to_x is None
+            or to_y is None
+            or to_z is None
+        ):
+            arcpy.AddWarning(
+                f"Skipping index {index} due to missing coordinates: "
+                f"from_x: {from_x}, from_y: {from_y}, from_z: {from_z}, "
+                f"to_x: {to_x}, to_y: {to_y}, to_z: {to_z}"
             )
-        )
+            pLine = None
+        else:
+            # create the polyline geometry
+            pLine = arcpy.Polyline(
+                arcpy.Array(
+                    [
+                        arcpy.Point(from_x, from_y, from_z, 0),
+                        arcpy.Point(to_x, to_y, to_z, to_len - from_len),
+                    ]
+                ),
+                spatial_reference,
+                True,
+                True,
+            )
+
+        # Convert row to list and set the SHAPE@ field to pLine if present
+        row_list = list(row)
+        if "SHAPE@" in fields_in_df:
+            shape_idx = fields_in_df.index("SHAPE@")
+            row_list[shape_idx] = pLine
+        ins_cursor.insertRow(row_list)
+
     del ins_cursor
 
     arcpy.AddMessage(f"Lab segment lines created in {out_Lab_segment_Lines_FC}")
@@ -233,7 +242,7 @@ def save_lab_segments_to_fc(
 
 
 def interpolate_xyz_at_m(segments, m_len):
-    # Loop through the segments and find the segment that contains the m_len
+    # Loop through the segments and find the segment that contains the measured length
     for i in range(len(segments) - 1):
         start_len = segments[i][3]
         end_len = segments[i + 1][3]
@@ -286,16 +295,22 @@ def create_lab_segments(borehole_dict, lab_df):
 
 if __name__ == "__main__":
 
-    inPro = True
+    inPro = False
 
     if inPro:
         borehole_lines_FC = arcpy.GetParameterAsText(0)
         lab_table = arcpy.GetParameterAsText(1)
         out_Lab_segment_Lines_FC = arcpy.GetParameterAsText(2)
     else:
-        borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/cumo_wells"
-        lab_table = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_Geochem_BV"
-        out_Lab_segment_Lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/lab_segments_3D"
+        # Cumo Testing Data
+        borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_borehole_line_from_m"
+        lab_table = r"C:/Dev/USGS_MRP/3D/lab_cumo.csv"
+        out_Lab_segment_Lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_lab_segments_3D"
+
+        # Pebble Testing Data
+        # borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Pebble_borehole_line_from_ft"
+        # lab_table = r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_lab.csv"
+        # out_Lab_segment_Lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Pebble_lab_segments_3D_ft"
 
     # Set the spatial reference to be the same as the borehole lines feature class
     spatial_reference = arcpy.Describe(borehole_lines_FC).spatialReference
