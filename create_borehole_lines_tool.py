@@ -3,6 +3,7 @@ import pandas as pd
 from arcgis.features import GeoAccessor
 import os
 import math
+import gc
 
 
 global x_field, y_field, z_field, length_field, dip_field, bearing_field, hole_id_field, output_max_length_field
@@ -264,7 +265,9 @@ def check_Existence_and_Fields(table, required_fields, tbl_Title):
     field_names = [fld.name for fld in flds]
     missing_fields = [field for field in required_fields if field not in field_names]
     if missing_fields:
-        arcpy.AddError(f"Missing required fields : {', '.join(missing_fields)}")
+        arcpy.AddError(
+            f"Missing required fields : {', '.join(missing_fields)} in {tbl_Title}."
+        )
         return False
 
     return True
@@ -305,7 +308,7 @@ def extend_lengths(survey_dict, lab_Table):
         if max_to_len > survey_dict[hole_id]["sections"][-1][0]:
             # display max_to_len and survey_dict[hole_id]["sections"][-1][0]
             arcpy.AddMessage(
-                f"Max length from lab table: {max_to_len} > Survey max length: {survey_dict[hole_id]['sections'][-1][0]}. Extending length."
+                f"Hole {hole_id}: Max length from lab table: {max_to_len} > Survey max: {survey_dict[hole_id]['sections'][-1][0]}. Extending"
             )
 
             # add a new section to the survey_dict with the maximum length
@@ -381,6 +384,12 @@ def script_tool(
     for boreRow in boreRows:
         ins_cursor.insertRow(boreRow)
     del ins_cursor
+
+    del collar_sdf
+    del survey_dict
+    del boreRows
+    gc.collect()
+
     arcpy.AddMessage(f"Borehole lines created in {out_3D_Polyline_FC}")
     arcpy.SetParameterAsText(5, out_3D_Polyline_FC)
 
@@ -483,23 +492,19 @@ if __name__ == "__main__":
         out_3D_Polyline_FC = arcpy.GetParameterAsText(5)
     else:
         # Cumo Testing Data
-        collar_Table = r"C:/Dev/USGS_MRP/3D/collar_cumo.csv"
-        spatial_reference = arcpy.SpatialReference(32611)
-        survey_Table = r"C:/Dev/USGS_MRP/3D/survey_cumo.csv"
-        lab_Table = r"C:/Dev/USGS_MRP/3D/lab_cumo.csv"
-        out_3D_Polyline_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_borehole_line_from_m"
+        # collar_Table = r"C:/Dev/USGS_MRP/3D/collar_cumo.csv"
+        # spatial_reference = arcpy.SpatialReference(32611)
+        # survey_Table = r"C:/Dev/USGS_MRP/3D/survey_cumo.csv"
+        # lab_Table = r"C:/Dev/USGS_MRP/3D/lab_cumo.csv"
+        # out_3D_Polyline_FC = r"C:/Dev/USGS_MRP/3D/test.gdb/Cumo_borehole_line"
 
         # Pebble Testing Data
-        # collar_Table = (
-        #     r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_collar.csv"
-        # )
+        collar_Table = r"C:/Dev/USGS_MRP/3D/NDM_2020_Pebble_collar.csv"
         # spatial_reference = 'PROJCS["NAD_1983_2011_StatePlane_Alaska_5_FIPS_5005_Feet",GEOGCS["GCS_NAD_1983_2011",DATUM["D_NAD_1983_2011",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",1640416.666666667],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",54.0],UNIT["Foot_US",0.3048006096012192]]'
-        # # spatial_reference = 'PROJCS["NAD_1983_2011_StatePlane_Alaska_5_FIPS_5005",GEOGCS["GCS_NAD_1983_2011",DATUM["D_NAD_1983_2011",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",54.0],UNIT["Meter",1.0]]'
-        # survey_Table = (
-        #     r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_survey.csv"
-        # )
-        # lab_Table = r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_lab.csv"
-        # out_3D_Polyline_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Pebble_borehole_line_from_ft"
+        spatial_reference = 'PROJCS["NAD_1983_2011_StatePlane_Alaska_5_FIPS_5005",GEOGCS["GCS_NAD_1983_2011",DATUM["D_NAD_1983_2011",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",54.0],UNIT["Meter",1.0]]'
+        survey_Table = r"C:/Dev/USGS_MRP/3D/NDM_2020_Pebble_survey.csv"
+        lab_Table = r"C:/Dev/USGS_MRP/3D/NDM_2020_Pebble_lab.csv"
+        out_3D_Polyline_FC = r"C:/Dev/USGS_MRP/3D/test.gdb/Pebble_borehole_line"
 
         method = "Minimum Curvature"
     # print the input parameters

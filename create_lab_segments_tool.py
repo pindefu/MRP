@@ -132,9 +132,12 @@ def script_tool(
         arcpy.AddError("Lab data is empty.")
         return
 
-    create_lab_segments(borehole_dict, lab_df)
+    calculate_lab_segments(borehole_dict, lab_df)
 
     save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field)
+
+    del borehole_dict
+    del lab_df
 
 
 def save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field):
@@ -184,14 +187,22 @@ def save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field):
                     out_Lab_segment_Lines_FC, field_name, field_type
                 )
 
+    # Saving the sdf directly to the feature class loses the Z geometry
+    # so we need to insert the rows one by one to preserve the Z values
     ins_cursor = arcpy.da.InsertCursor(out_Lab_segment_Lines_FC, fields_in_df)
-    arcpy.AddMessage("Inserting rows into the feature class...")
+    arcpy.AddMessage("\nInserting rows into the feature class...")
     # loop through the lab_df and create the lines and insert them into the feature class
-    idx = 0
+    previous_holeID = None
     for index, row in lab_df.iterrows():
-        if idx % 500 == 0:
-            arcpy.AddMessage(f"Processing index {idx}...")
-        idx += 1
+        holeID = row[hole_id_field]
+        # Check if the holeID is the same as the previous one
+        if previous_holeID is None:
+            previous_holeID = holeID
+            arcpy.AddMessage(f"Inserting rows for hole {holeID}...")
+        elif previous_holeID != holeID:
+            arcpy.AddMessage(f"Inserting rows for hole {holeID}...")
+            previous_holeID = holeID
+
         from_len = row[from_len_field]
         from_x = row["from_x"]
         from_y = row["from_y"]
@@ -200,6 +211,7 @@ def save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field):
         to_x = row["to_x"]
         to_y = row["to_y"]
         to_z = row["to_z"]
+
         if (
             from_x is None
             or from_y is None
@@ -209,7 +221,7 @@ def save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field):
             or to_z is None
         ):
             arcpy.AddWarning(
-                f"Skipping index {index} due to missing coordinates: "
+                f"Skipping hole ID {holeID} length {from_len}-{to_len} due to missing coordinates: "
                 f"from_x: {from_x}, from_y: {from_y}, from_z: {from_z}, "
                 f"to_x: {to_x}, to_y: {to_y}, to_z: {to_z}"
             )
@@ -241,7 +253,7 @@ def save_lab_segments_to_fc(lab_df, out_Lab_segment_Lines_FC, hole_id_field):
     arcpy.SetParameterAsText(2, out_Lab_segment_Lines_FC)
 
 
-def interpolate_xyz_at_m(segments, m_len):
+def interpolate_xyz_at_m(segments, m_len, hole_id):
     # Loop through the segments and find the segment that contains the measured length
     for i in range(len(segments) - 1):
         start_len = segments[i][3]
@@ -259,18 +271,27 @@ def interpolate_xyz_at_m(segments, m_len):
 
             return x, y, z
 
-    # If the m_len is not found in any segment, return None
-    arcpy.AddWarning(
-        f"m_len {m_len} not found in any segment. Returning None for x, y, z."
-    )
+    # If the m_len is not found in any segment, extend a padding to accommodate arcpy length round-off
+    padding = 0.0001
+    if (
+        segments is not None
+        and end_len is not None
+        and end_len <= m_len <= end_len + padding
+    ):
+        return segments[-1][0], segments[-1][1], segments[-1][2]
+
+    arcpy.AddWarning(f"Length {m_len} not found in any segments of {hole_id}.")
     return None, None, None
 
 
-def create_lab_segments(borehole_dict, lab_df):
+def calculate_lab_segments(borehole_dict, lab_df):
     # Loop through the lab data and calculate the from_x, from_y, from_z, to_x, to_y, to_z for each lab segment
+    arcpy.AddMessage("Calculating lab segment lines...")
     for index, row in lab_df.iterrows():
         hole_id = row[hole_id_field]
-        arcpy.AddMessage(f"Processing index {index} hole id {hole_id}...")
+        from_len = row[from_len_field]
+        to_len = row[to_len_field]
+
         # Check if the hole_id exists in the borehole_dict
         if hole_id not in borehole_dict:
             arcpy.AddWarning(f"Hole ID {hole_id} not found in borehole data.")
@@ -278,11 +299,8 @@ def create_lab_segments(borehole_dict, lab_df):
         else:
             segments = borehole_dict[hole_id]["segments"]
 
-        from_len = row[from_len_field]
-        to_len = row[to_len_field]
-
-        from_x, from_y, from_z = interpolate_xyz_at_m(segments, from_len)
-        to_x, to_y, to_z = interpolate_xyz_at_m(segments, to_len)
+        from_x, from_y, from_z = interpolate_xyz_at_m(segments, from_len, hole_id)
+        to_x, to_y, to_z = interpolate_xyz_at_m(segments, to_len, hole_id)
 
         # assign the values to the row
         lab_df.at[index, "from_x"] = from_x
@@ -303,14 +321,14 @@ if __name__ == "__main__":
         out_Lab_segment_Lines_FC = arcpy.GetParameterAsText(2)
     else:
         # Cumo Testing Data
-        borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_borehole_line_from_m"
-        lab_table = r"C:/Dev/USGS_MRP/3D/lab_cumo.csv"
-        out_Lab_segment_Lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Cumo_lab_segments_3D"
+        # borehole_lines_FC = r"C:/Dev/USGS_MRP/3D/test.gdb/Cumo_borehole_line"
+        # lab_table = r"C:/Dev/USGS_MRP/3D/lab_cumo.csv"
+        # out_Lab_segment_Lines_FC = r"C:/Dev/USGS_MRP/3D/test.gdb/Cumo_lab_segments_3D"
 
         # Pebble Testing Data
-        # borehole_lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Pebble_borehole_line_from_ft"
-        # lab_table = r"C:/Dev/USGS_MRP/3D/Pebble_ESRI_format/NDM_2020_Pebble_lab.csv"
-        # out_Lab_segment_Lines_FC = r"C:/Users/pind3135/OneDrive - Esri/Documents/ArcGIS/Projects/MRP3/MRP3.gdb/Pebble_lab_segments_3D_ft"
+        borehole_lines_FC = r"C:/Dev/USGS_MRP/3D/test.gdb/Pebble_borehole_line"
+        lab_table = r"C:/Dev/USGS_MRP/3D/NDM_2020_Pebble_lab.csv"
+        out_Lab_segment_Lines_FC = r"C:/Dev/USGS_MRP/3D/test.gdb/Pebble_lab_segments_3D"
 
     # Set the spatial reference to be the same as the borehole lines feature class
     spatial_reference = arcpy.Describe(borehole_lines_FC).spatialReference
